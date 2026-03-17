@@ -34,11 +34,11 @@ const PRESETS = {
 
 type PresetKey = 'crypto' | 'gold' | 'custom'
 
-const GOLD_SILVER_SYMBOLS = ['GOLD', 'SILVER']
+const LOW_VOL_SYMBOLS = ['GOLD', 'SILVER', 'EUR', 'JPY']
 
 function detectPreset(symbol: string): PresetKey {
   const base = symbol.replace(/USDT$/, '').toUpperCase()
-  if (GOLD_SILVER_SYMBOLS.includes(base)) return 'gold'
+  if (LOW_VOL_SYMBOLS.includes(base)) return 'gold'
   return 'crypto'
 }
 
@@ -90,10 +90,15 @@ export function GridConfigEditor({
 
   const handleSymbolChange = (symbol: string) => {
     if (disabled) return
-    const preset = detectPreset(symbol)
-    const p = preset === 'custom' ? {} : PRESETS[preset]
-    setActivePreset(preset)
-    onChange({ ...config, symbol, ...p })
+    const newPreset = detectPreset(symbol)
+    const oldPreset = detectPreset(config.symbol)
+    if (newPreset !== oldPreset && newPreset !== 'custom') {
+      const p = PRESETS[newPreset]
+      setActivePreset(newPreset)
+      onChange({ ...config, symbol, ...p })
+    } else {
+      onChange({ ...config, symbol })
+    }
   }
 
   const inputStyle = {

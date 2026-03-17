@@ -336,6 +336,25 @@ func (at *AutoTrader) InitializeGrid() error {
 	logger.Infof("[Grid] Initialized: %d levels, $%.2f - $%.2f, spacing $%.2f",
 		gridConfig.GridCount, at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
 
+	// Log full configuration summary for traceability
+	rt := ResolveRegimeThresholds(gridConfig)
+	logger.Infof("[Grid] === Config Summary ===")
+	logger.Infof("[Grid]   Symbol: %s | Investment: $%.2f | Leverage: %dx | ATR mult: %.1f",
+		gridConfig.Symbol, gridConfig.TotalInvestment, gridConfig.Leverage, gridConfig.ATRMultiplier)
+	logger.Infof("[Grid]   Regime thresholds (BB%%): narrow<%.1f, standard<%.1f, wide<%.1f",
+		rt.NarrowBBWidth, rt.StandardBBWidth, rt.WideBBWidth)
+	logger.Infof("[Grid]   Regime thresholds (ATR%%): narrow<%.1f, standard<%.1f, wide<%.1f",
+		rt.NarrowATRPct, rt.StandardATRPct, rt.WideATRPct)
+	pt := kernel.ResolveGridPromptThresholds(gridConfig)
+	logger.Infof("[Grid]   AI Prompt: ranging BB<%.1f%% EMA<%.1f%% | trending BB>%.1f%% EMA>%.1f%%",
+		pt.RangingBBWidth, pt.RangingEMADist, pt.TrendingBBWidth, pt.TrendingEMADist)
+	bpPct := 2.0
+	if gridConfig.BreakoutPausePct > 0 {
+		bpPct = gridConfig.BreakoutPausePct
+	}
+	logger.Infof("[Grid]   Breakout pause: %.1f%% | Stop loss: %.1f%% | Max drawdown: %.1f%%",
+		bpPct, gridConfig.StopLossPct, gridConfig.MaxDrawdownPct)
+
 	return nil
 }
 
@@ -409,6 +428,29 @@ func (at *AutoTrader) RunGridCycle() error {
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
 		return fmt.Errorf("failed to build grid context: %w", err)
+	}
+
+	// Classify regime from latest market data and persist into grid state
+	if gridCtx.CurrentPrice > 0 {
+		atr14Pct := 0.0
+		if gridCtx.ATR14 > 0 {
+			atr14Pct = gridCtx.ATR14 / gridCtx.CurrentPrice * 100
+		}
+		thresholds := ResolveRegimeThresholds(gridConfig)
+		regimeLevel := classifyRegimeLevelWithThresholds(gridCtx.BollingerWidth, atr14Pct, thresholds)
+
+		at.gridState.mu.Lock()
+		prevRegime := at.gridState.CurrentRegimeLevel
+		at.gridState.CurrentRegimeLevel = string(regimeLevel)
+		at.gridState.mu.Unlock()
+
+		logger.Debugf("[Grid] Regime: %s (BB=%.2f%%, ATR=%.2f%%, price=$%.2f)",
+			regimeLevel, gridCtx.BollingerWidth, atr14Pct, gridCtx.CurrentPrice)
+
+		if prevRegime != "" && prevRegime != string(regimeLevel) {
+			logger.Warnf("[Grid] REGIME CHANGE: %s -> %s (BB=%.2f%%, ATR=%.2f%%)",
+				prevRegime, regimeLevel, gridCtx.BollingerWidth, atr14Pct)
+		}
 	}
 
 	// Get AI decisions

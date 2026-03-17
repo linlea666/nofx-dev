@@ -14,8 +14,13 @@ import (
 
 // calculateDefaultBounds calculates default bounds based on price
 func (at *AutoTrader) calculateDefaultBounds(price float64, config *store.GridStrategyConfig) {
-	// Default: +/-3% from current price
-	multiplier := 0.03 * float64(config.GridCount) / 10
+	// Base percentage derived from ATR multiplier: higher multiplier → wider fallback range
+	// Crypto (ATR mult 2.0): 3% base; Gold/Forex (ATR mult 3.5): ~5.25% base
+	basePct := 0.03
+	if config.ATRMultiplier > 0 {
+		basePct = 0.015 * config.ATRMultiplier
+	}
+	multiplier := basePct * float64(config.GridCount) / 10
 	at.gridState.UpperPrice = price * (1 + multiplier)
 	at.gridState.LowerPrice = price * (1 - multiplier)
 }
@@ -28,6 +33,8 @@ func (at *AutoTrader) calculateATRBounds(price float64, mktData *market.Data, co
 	}
 
 	if atr <= 0 {
+		logger.Infof("[Grid] ATR unavailable, using default bounds (basePct=%.2f%%, ATR_mult=%.1f)",
+			0.015*config.ATRMultiplier*100, config.ATRMultiplier)
 		at.calculateDefaultBounds(price, config)
 		return
 	}
@@ -40,6 +47,10 @@ func (at *AutoTrader) calculateATRBounds(price float64, mktData *market.Data, co
 	halfRange := atr * multiplier
 	at.gridState.UpperPrice = price + halfRange
 	at.gridState.LowerPrice = price - halfRange
+
+	atrPct := atr / price * 100
+	logger.Infof("[Grid] ATR bounds: ATR=$%.2f (%.2f%% of price), mult=%.1f, range=$%.2f-$%.2f",
+		atr, atrPct, multiplier, at.gridState.LowerPrice, at.gridState.UpperPrice)
 }
 
 // initializeGridLevels creates the grid level structure
@@ -331,8 +342,11 @@ func (at *AutoTrader) autoAdjustGrid() {
 
 // calculateDefaultBoundsLocked calculates default bounds (caller must hold lock)
 func (at *AutoTrader) calculateDefaultBoundsLocked(price float64, config *store.GridStrategyConfig) {
-	// Default: +/-3% from current price, scaled by grid count
-	multiplier := 0.03 * float64(config.GridCount) / 10
+	basePct := 0.03
+	if config.ATRMultiplier > 0 {
+		basePct = 0.015 * config.ATRMultiplier
+	}
+	multiplier := basePct * float64(config.GridCount) / 10
 	at.gridState.UpperPrice = price * (1 + multiplier)
 	at.gridState.LowerPrice = price * (1 - multiplier)
 }
@@ -345,6 +359,7 @@ func (at *AutoTrader) calculateATRBoundsLocked(price float64, mktData *market.Da
 	}
 
 	if atr <= 0 {
+		logger.Infof("[Grid] ATR unavailable during adjust, using default bounds")
 		at.calculateDefaultBoundsLocked(price, config)
 		return
 	}
@@ -357,6 +372,9 @@ func (at *AutoTrader) calculateATRBoundsLocked(price float64, mktData *market.Da
 	halfRange := atr * multiplier
 	at.gridState.UpperPrice = price + halfRange
 	at.gridState.LowerPrice = price - halfRange
+
+	logger.Infof("[Grid] ATR bounds (adjust): ATR=$%.2f, mult=%.1f, range=$%.2f-$%.2f",
+		atr, multiplier, at.gridState.LowerPrice, at.gridState.UpperPrice)
 }
 
 // initializeGridLevelsLocked creates the grid level structure (caller must hold lock)

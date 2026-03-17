@@ -93,20 +93,24 @@ type GridContext struct {
 // Grid Volatility Profile Defaults
 // ============================================================================
 
-// gridThresholds resolves configured thresholds with defaults for zero values
-type gridThresholds struct {
+// GridPromptThresholds holds resolved thresholds for AI prompt market regime assessment
+type GridPromptThresholds struct {
 	RangingBBWidth  float64
 	TrendingBBWidth float64
 	RangingEMADist  float64
 	TrendingEMADist float64
 }
 
-func resolveGridThresholds(config *store.GridStrategyConfig) gridThresholds {
-	t := gridThresholds{
+// ResolveGridPromptThresholds resolves configured prompt thresholds with defaults for zero values
+func ResolveGridPromptThresholds(config *store.GridStrategyConfig) GridPromptThresholds {
+	t := GridPromptThresholds{
 		RangingBBWidth:  3.0,
 		TrendingBBWidth: 4.0,
 		RangingEMADist:  1.0,
 		TrendingEMADist: 2.0,
+	}
+	if config == nil {
+		return t
 	}
 	if config.RangingBBWidth > 0 {
 		t.RangingBBWidth = config.RangingBBWidth
@@ -129,6 +133,9 @@ func resolveGridThresholds(config *store.GridStrategyConfig) gridThresholds {
 
 // BuildGridSystemPrompt builds the system prompt for grid trading AI
 func BuildGridSystemPrompt(config *store.GridStrategyConfig, lang string) string {
+	t := ResolveGridPromptThresholds(config)
+	logger.Debugf("[Grid] Prompt thresholds: ranging BB<%.1f%% EMA<%.1f%%, trending BB>%.1f%% EMA>%.1f%% (lang=%s)",
+		t.RangingBBWidth, t.RangingEMADist, t.TrendingBBWidth, t.TrendingEMADist, lang)
 	if lang == "zh" {
 		return buildGridSystemPromptZh(config)
 	}
@@ -136,7 +143,7 @@ func BuildGridSystemPrompt(config *store.GridStrategyConfig, lang string) string
 }
 
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
-	t := resolveGridThresholds(config)
+	t := ResolveGridPromptThresholds(config)
 	return fmt.Sprintf(`# 你是一个专业的网格交易AI
 
 ## 角色定义
@@ -155,8 +162,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ## 决策规则
 
 ### 市场状态判断
-- **震荡市场** (适合网格): 布林带宽度 < %.1f%%%%, EMA20/50 距离 < %.1f%%%%, 价格在布林带中轨附近
-- **趋势市场** (暂停网格): 布林带宽度 > %.1f%%%%, EMA20/50 距离 > %.1f%%%%, 价格持续突破布林带
+- **震荡市场** (适合网格): 布林带宽度 < %.1f%%, EMA20/50 距离 < %.1f%%, 价格在布林带中轨附近
+- **趋势市场** (暂停网格): 布林带宽度 > %.1f%%, EMA20/50 距离 > %.1f%%, 价格持续突破布林带
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
 
 ### 可执行的操作
@@ -191,7 +198,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 }
 
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
-	t := resolveGridThresholds(config)
+	t := ResolveGridPromptThresholds(config)
 	return fmt.Sprintf(`# You are a Professional Grid Trading AI
 
 ## Role Definition
@@ -210,8 +217,8 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 ## Decision Rules
 
 ### Market Regime Assessment
-- **Ranging Market** (ideal for grid): Bollinger width < %.1f%%%%, EMA20/50 distance < %.1f%%%%, price near middle band
-- **Trending Market** (pause grid): Bollinger width > %.1f%%%%, EMA20/50 distance > %.1f%%%%, price breaking bands
+- **Ranging Market** (ideal for grid): Bollinger width < %.1f%%, EMA20/50 distance < %.1f%%, price near middle band
+- **Trending Market** (pause grid): Bollinger width > %.1f%%, EMA20/50 distance > %.1f%%, price breaking bands
 - **High Volatility** (caution): ATR spike, erratic price movement
 
 ### Available Actions

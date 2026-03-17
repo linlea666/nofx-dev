@@ -239,7 +239,7 @@ func (s *GridStore) InitTables() error {
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'grid_configs'`).Scan(&tableExists)
 
 		if tableExists > 0 {
-			// Tables exist, just ensure indexes
+			// Tables exist — ensure indexes
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_configs_user_id ON grid_configs(user_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_configs_trader_id ON grid_configs(trader_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_instances_config_id ON grid_instances(config_id)`)
@@ -247,6 +247,27 @@ func (s *GridStore) InitTables() error {
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_events_instance_id ON grid_events(instance_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_events_level_id ON grid_events(level_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_regime_assessments_instance_id ON grid_regime_assessments(instance_id)`)
+
+			// Ensure volatility profile columns exist (safe ADD COLUMN IF NOT EXISTS for upgrades)
+			volCols := []struct{ name, typ, def string }{
+				{"narrow_bb_width", "double precision", "2.0"},
+				{"standard_bb_width", "double precision", "3.0"},
+				{"wide_bb_width", "double precision", "4.0"},
+				{"narrow_atr_pct", "double precision", "1.0"},
+				{"standard_atr_pct", "double precision", "2.0"},
+				{"wide_atr_pct", "double precision", "3.0"},
+				{"ranging_bb_width", "double precision", "3.0"},
+				{"trending_bb_width", "double precision", "4.0"},
+				{"ranging_ema_dist", "double precision", "1.0"},
+				{"trending_ema_dist", "double precision", "2.0"},
+				{"breakout_pause_pct", "double precision", "2.0"},
+			}
+			for _, col := range volCols {
+				s.db.Exec(fmt.Sprintf(
+					`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS %s %s DEFAULT %s`,
+					col.name, col.typ, col.def,
+				))
+			}
 			return nil
 		}
 	}
