@@ -472,7 +472,7 @@ func (t *HyperliquidTrader) cancelXyzOrders(coin string) error {
 	canceledCount := 0
 	for _, order := range openOrders {
 		if order.Coin == coin {
-			if err := t.cancelXyzOrder(order.Oid); err != nil {
+			if err := t.cancelXyzOrder(coin, order.Oid); err != nil {
 				logger.Infof("  ⚠ Failed to cancel xyz dex order (oid=%d): %v", order.Oid, err)
 				continue
 			}
@@ -489,27 +489,40 @@ func (t *HyperliquidTrader) cancelXyzOrders(coin string) error {
 	return nil
 }
 
-// cancelXyzOrder cancels a single xyz dex order by oid
-func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
-	// Get asset index for this order (we need it for cancel action)
-	// For cancel, we construct a cancel action with the oid
+// cancelXyzOrder cancels a single xyz dex order by coin and oid
+func (t *HyperliquidTrader) cancelXyzOrder(coin string, oid int64) error {
+	t.xyzMetaMutex.RLock()
+	hasMeta := t.xyzMeta != nil
+	t.xyzMetaMutex.RUnlock()
+
+	if !hasMeta {
+		if err := t.fetchXyzMeta(); err != nil {
+			return fmt.Errorf("failed to fetch xyz meta: %w", err)
+		}
+	}
+
+	metaIndex := t.getXyzAssetIndex(coin)
+	if metaIndex < 0 {
+		return fmt.Errorf("xyz asset %s not found in meta", coin)
+	}
+
+	const xyzPerpDexIndex = 1
+	assetIndex := 100000 + xyzPerpDexIndex*10000 + metaIndex
 
 	action := map[string]interface{}{
 		"type": "cancel",
 		"cancels": []map[string]interface{}{
 			{
-				"a": oid, // asset index not needed for cancel by oid in xyz dex
+				"a": assetIndex,
 				"o": oid,
 			},
 		},
 	}
 
-	// Sign the action
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
-	vaultAddress := ""
 
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, vaultAddress, nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
 	if err != nil {
 		return fmt.Errorf("failed to sign cancel action: %w", err)
 	}
@@ -539,12 +552,15 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Check response
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("cancel API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
 	var result struct {
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+		return fmt.Errorf("failed to parse response: %s", string(body))
 	}
 
 	if result.Status != "ok" {
@@ -555,16 +571,16 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 }
 
 // buildExchangePayload constructs the standard /exchange endpoint payload.
-// HyPaper (paper trading) requires explicit vaultAddress because it cannot
-// derive wallet identity from EIP-712 signatures. Mainnet does NOT need it
-// (agent wallet authorization handles identity), so we only add it for paper.
+// vaultAddress is required when the signing key differs from the account owner:
+//   - HyPaper: paper trading backend cannot derive identity from EIP-712 signatures
+//   - Agent wallet mode: signing key is the agent, funds are in the main wallet
 func (t *HyperliquidTrader) buildExchangePayload(action any, nonce int64, sig hyperliquid.SignatureResult) map[string]any {
 	payload := map[string]any{
 		"action":    action,
 		"nonce":     nonce,
 		"signature": sig,
 	}
-	if t.isPaper {
+	if t.isPaper || t.isAgentMode {
 		payload["vaultAddress"] = t.walletAddr
 	}
 	return payload
@@ -1198,7 +1214,7 @@ func (t *HyperliquidTrader) CancelOrder(symbol, orderID string) error {
 	}
 
 	if strings.HasPrefix(coin, "xyz:") {
-		if err := t.cancelXyzOrder(oid); err != nil {
+		if err := t.cancelXyzOrder(coin, oid); err != nil {
 			return fmt.Errorf("failed to cancel xyz order: %w", err)
 		}
 		logger.Infof("✓ [Hyperliquid] xyz order cancelled: %s oid=%d", coin, oid)

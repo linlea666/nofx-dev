@@ -35,6 +35,7 @@ type HyperliquidTrader struct {
 	privateKey   *ecdsa.PrivateKey // For xyz dex signing
 	isTestnet    bool
 	isPaper      bool
+	isAgentMode  bool   // true when signing key differs from walletAddr (agent wallet)
 	apiBaseURL   string // Centralized base URL (mainnet/testnet/paper) — all methods use this
 }
 
@@ -257,6 +258,8 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, network strin
 		logger.Infof("✓ Unified Account mode enabled: Spot USDC will be used as collateral for Perp trading")
 	}
 
+	isAgentMode := !isPaper && !strings.EqualFold(walletAddr, agentAddr)
+
 	return &HyperliquidTrader{
 		exchange:         exchange,
 		ctx:              ctx,
@@ -267,6 +270,7 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, network strin
 		privateKey:       privateKey,
 		isTestnet:        network == "testnet",
 		isPaper:          isPaper,
+		isAgentMode:      isAgentMode,
 		apiBaseURL:       baseURL,
 	}, nil
 }
