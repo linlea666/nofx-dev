@@ -14,11 +14,6 @@ import (
 const (
 	MainnetAPIURL = "https://api.hyperliquid.xyz/info"
 	TestnetAPIURL = "https://api.hyperliquid-testnet.xyz/info"
-	PaperAPIURL   = "https://api.hypaper.xyz/info"
-
-	MainnetBaseURL = "https://api.hyperliquid.xyz"
-	TestnetBaseURL = "https://api.hyperliquid-testnet.xyz"
-	PaperBaseURL   = "https://api.hypaper.xyz"
 )
 
 // Candle represents a single OHLCV candle from Hyperliquid

@@ -55,6 +55,8 @@ func (s *ExchangeStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'exchanges'`).Scan(&tableExists)
 		if tableExists > 0 {
+			// Add new columns that AutoMigrate would skip for existing PostgreSQL tables
+			s.db.Exec(`ALTER TABLE exchanges ADD COLUMN IF NOT EXISTS hyperliquid_network VARCHAR(20) DEFAULT ''`)
 			// Still run data migrations
 			s.migrateToMultiAccount()
 			s.db.Model(&Exchange{}).Where("account_name = '' OR account_name IS NULL").Update("account_name", "Default")
