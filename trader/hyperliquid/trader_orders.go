@@ -1124,6 +1124,12 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	logger.Infof("🔍 [xyz] PlaceLimitOrder response (status=%d): %s", resp.StatusCode, string(body))
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("xyz limit order HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
 	var result struct {
 		Status   string `json:"status"`
 		Response struct {
@@ -1145,7 +1151,7 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("xyz limit order response parse failed (status=%d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("xyz limit order response parse failed: %s", string(body))
 	}
 	if result.Status != "ok" {
 		return nil, fmt.Errorf("xyz limit order rejected: status=%s, body=%s", result.Status, string(body))
@@ -1166,6 +1172,8 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 			status = "FILLED"
 			logger.Infof("✅ [xyz] Limit order filled: oid=%d totalSz=%s avgPx=%s", s.Filled.Oid, s.Filled.TotalSz, s.Filled.AvgPx)
 		}
+	} else {
+		logger.Warnf("⚠️ [xyz] Limit order returned ok but empty statuses — order may not have been placed")
 	}
 
 	return &types.LimitOrderResult{
