@@ -531,6 +531,12 @@ func (t *HyperliquidTrader) GetTrades(startTime time.Time, limit int) ([]types.T
 
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *HyperliquidTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
+	coin := convertSymbolToHyperliquid(symbol)
+
+	if strings.HasPrefix(coin, "xyz:") {
+		return t.getXyzOpenOrders(coin)
+	}
+
 	openOrders, err := t.exchange.Info().OpenOrders(t.ctx, t.walletAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get open orders: %w", err)
@@ -557,6 +563,80 @@ func (t *HyperliquidTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, err
 			StopPrice:    0,
 			Quantity:     order.Size,
 			Status:       "NEW",
+		})
+	}
+
+	return result, nil
+}
+
+// getXyzOpenOrders queries open orders from the xyz DEX endpoint
+func (t *HyperliquidTrader) getXyzOpenOrders(coin string) ([]types.OpenOrder, error) {
+	reqBody := map[string]interface{}{
+		"type": "openOrders",
+		"user": t.walletAddr,
+		"dex":  "xyz",
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.ctx, "POST", t.apiBaseURL+"/info", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get xyz open orders: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("xyz openOrders API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var openOrders []struct {
+		Coin    string  `json:"coin"`
+		Oid     int64   `json:"oid"`
+		Side    string  `json:"side"`
+		LimitPx string  `json:"limitPx"`
+		Sz      string  `json:"sz"`
+	}
+	if err := json.Unmarshal(body, &openOrders); err != nil {
+		return nil, fmt.Errorf("failed to parse xyz open orders: %w", err)
+	}
+
+	var result []types.OpenOrder
+	for _, order := range openOrders {
+		if order.Coin != coin {
+			continue
+		}
+
+		side := "BUY"
+		if order.Side == "A" {
+			side = "SELL"
+		}
+
+		price, _ := strconv.ParseFloat(order.LimitPx, 64)
+		qty, _ := strconv.ParseFloat(order.Sz, 64)
+
+		result = append(result, types.OpenOrder{
+			OrderID:  fmt.Sprintf("%d", order.Oid),
+			Symbol:   order.Coin,
+			Side:     side,
+			Type:     "LIMIT",
+			Price:    price,
+			Quantity: qty,
+			Status:   "NEW",
 		})
 	}
 

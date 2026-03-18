@@ -5,8 +5,19 @@ import (
 	"math"
 	"nofx/kernel"
 	"nofx/logger"
+	"strings"
 	"time"
 )
+
+// matchesGridSymbol checks if a position symbol matches the grid config symbol.
+// Handles xyz DEX format: position may be "xyz:GOLD" while config is "GOLD".
+func matchesGridSymbol(posSymbol, gridSymbol string) bool {
+	if posSymbol == gridSymbol {
+		return true
+	}
+	return strings.EqualFold(posSymbol, "xyz:"+gridSymbol) ||
+		strings.EqualFold("xyz:"+posSymbol, gridSymbol)
+}
 
 // ============================================================================
 // Grid Order Placement and Management
@@ -267,7 +278,7 @@ func (at *AutoTrader) syncGridState() {
 		logger.Warnf("[Grid] Failed to get positions for state sync: %v", err)
 	} else {
 		for _, pos := range positions {
-			if sym, ok := pos["symbol"].(string); ok && sym == gridConfig.Symbol {
+			if sym, ok := pos["symbol"].(string); ok && matchesGridSymbol(sym, gridConfig.Symbol) {
 				if size, ok := pos["positionAmt"].(float64); ok {
 					currentPositionSize = size
 				}
