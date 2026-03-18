@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"nofx/logger"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -227,10 +226,18 @@ func fetchVIXFromSina(data *GoldMacroData, addError func(string)) {
 
 // ── Sina US 10Y Bond Yield API ──────────────────────────────────────────────
 
-var jsonpRe = regexp.MustCompile(`\w+\s*=\s*\((\{.+\})\)`)
+// extractJSON extracts the first JSON object from a JSONP or plain response.
+func extractJSON(raw string) string {
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		return raw[start : end+1]
+	}
+	return raw
+}
 
 func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
-	url := "https://bond.finance.sina.com.cn/hq/gb/min?symbol=us10yt&callback=cb"
+	url := "https://bond.finance.sina.com.cn/hq/gb/min?symbol=us10yt"
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		addError(fmt.Sprintf("sina us10y: %v", err))
@@ -244,13 +251,8 @@ func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
 		return
 	}
 
-	// Strip JSONP wrapper: cb({"code":0,...})
-	raw := string(body)
-	matches := jsonpRe.FindStringSubmatch(raw)
-	if len(matches) < 2 {
-		// Try parsing as plain JSON
-		matches = []string{"", raw}
-	}
+	// Strip any JSONP wrapper by extracting the JSON object
+	jsonStr := extractJSON(string(body))
 
 	var result struct {
 		Code   int `json:"code"`
@@ -258,7 +260,7 @@ func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
 			Data [][]interface{} `json:"data"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(matches[1]), &result); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		addError(fmt.Sprintf("sina us10y parse: %v", err))
 		return
 	}
