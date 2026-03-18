@@ -272,8 +272,7 @@ export function GridConfigEditor({
               <button
                 key={opt.value}
                 onClick={() => {
-                  updateField('bounds_mode', opt.value)
-                  updateField('use_atr_bounds', opt.value === 'atr')
+                  onChange({ ...config, bounds_mode: opt.value, use_atr_bounds: opt.value === 'atr' })
                 }}
                 disabled={disabled}
                 className="px-3 py-1.5 rounded text-sm transition-colors"
