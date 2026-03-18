@@ -515,9 +515,10 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 	}
 
 	payload := map[string]any{
-		"action":    action,
-		"nonce":     nonce,
-		"signature": sig,
+		"action":       action,
+		"nonce":        nonce,
+		"signature":    sig,
+		"vaultAddress": t.walletAddr,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -645,14 +646,13 @@ func (t *HyperliquidTrader) placeXyzOrder(coin string, isBuy bool, size float64,
 		return fmt.Errorf("failed to sign xyz dex order: %w", err)
 	}
 
-	// Construct payload for /exchange endpoint
 	payload := map[string]any{
-		"action":    action,
-		"nonce":     nonce,
-		"signature": sig,
+		"action":       action,
+		"nonce":        nonce,
+		"signature":    sig,
+		"vaultAddress": t.walletAddr,
 	}
 
-	// POST to /exchange
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -803,14 +803,13 @@ func (t *HyperliquidTrader) placeXyzTriggerOrder(coin string, isBuy bool, size f
 		return fmt.Errorf("failed to sign xyz dex trigger order: %w", err)
 	}
 
-	// Construct payload for /exchange endpoint
 	payload := map[string]any{
-		"action":    action,
-		"nonce":     nonce,
-		"signature": sig,
+		"action":       action,
+		"nonce":        nonce,
+		"signature":    sig,
+		"vaultAddress": t.walletAddr,
 	}
 
-	// POST to /exchange
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -1100,9 +1099,10 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 	}
 
 	payload := map[string]any{
-		"action":    action,
-		"nonce":     nonce,
-		"signature": sig,
+		"action":       action,
+		"nonce":        nonce,
+		"signature":    sig,
+		"vaultAddress": t.walletAddr,
 	}
 
 	jsonData, err := json.Marshal(payload)
