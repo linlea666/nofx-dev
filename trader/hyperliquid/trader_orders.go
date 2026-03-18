@@ -977,25 +977,29 @@ func (t *HyperliquidTrader) SetTakeProfit(symbol string, positionSide string, qu
 // Implements GridTrader interface
 func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitOrderResult, error) {
 	coin := convertSymbolToHyperliquid(req.Symbol)
-
-	// Set leverage if specified and not xyz dex
 	isXyz := strings.HasPrefix(coin, "xyz:")
+	isBuy := req.Side == "BUY"
+
+	// Set leverage if specified (skip for xyz dex)
 	if req.Leverage > 0 && !isXyz {
 		if err := t.SetLeverage(req.Symbol, req.Leverage); err != nil {
 			logger.Warnf("[Hyperliquid] Failed to set leverage: %v", err)
 		}
 	}
 
-	// Round quantity to allowed decimals
-	roundedQuantity := t.roundToSzDecimals(coin, req.Quantity)
+	if isXyz {
+		return t.placeXyzLimitOrder(coin, isBuy, req)
+	}
 
-	// Round price to 5 significant figures
+	roundedQuantity := t.roundToSzDecimals(coin, req.Quantity)
 	roundedPrice := t.roundPriceToSigfigs(req.Price)
 
-	// Determine if buy or sell
-	isBuy := req.Side == "BUY"
+	tif := hyperliquid.TifGtc
+	if req.PostOnly {
+		tif = hyperliquid.TifAlo
+	}
 
-	logger.Infof("[Hyperliquid] PlaceLimitOrder: %s %s @ %.4f, qty=%.4f", coin, req.Side, roundedPrice, roundedQuantity)
+	logger.Infof("[Hyperliquid] PlaceLimitOrder: %s %s @ %.4f, qty=%.4f, tif=%s", coin, req.Side, roundedPrice, roundedQuantity, tif)
 
 	order := hyperliquid.CreateOrderRequest{
 		Coin:  coin,
@@ -1004,7 +1008,7 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 		Price: roundedPrice,
 		OrderType: hyperliquid.OrderType{
 			Limit: &hyperliquid.LimitOrderType{
-				Tif: hyperliquid.TifGtc, // Good Till Cancel for grid orders
+				Tif: tif,
 			},
 		},
 		ReduceOnly: req.ReduceOnly,
@@ -1015,13 +1019,8 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 		return nil, fmt.Errorf("failed to place limit order: %w", err)
 	}
 
-	// Note: Hyperliquid's Order response doesn't return the order ID directly
-	// We would need to query open orders to get it, but for grid trading
-	// we can track orders by price level instead
 	orderID := fmt.Sprintf("%d", time.Now().UnixNano())
-
-	logger.Infof("✓ [Hyperliquid] Limit order placed: %s %s @ %.4f",
-		coin, req.Side, roundedPrice)
+	logger.Infof("✓ [Hyperliquid] Limit order placed: %s %s @ %.4f", coin, req.Side, roundedPrice)
 
 	return &types.LimitOrderResult{
 		OrderID:      orderID,
@@ -1035,15 +1034,172 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 	}, nil
 }
 
+// placeXyzLimitOrder places a GTC/ALO limit order on the xyz dex for grid trading.
+// Unlike placeXyzOrder (which uses IOC for market-like fills), this uses GTC so
+// the order rests on the book until filled — essential for grid strategies.
+func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *types.LimitOrderRequest) (*types.LimitOrderResult, error) {
+	t.xyzMetaMutex.RLock()
+	hasMeta := t.xyzMeta != nil
+	t.xyzMetaMutex.RUnlock()
+
+	if !hasMeta {
+		if err := t.fetchXyzMeta(); err != nil {
+			return nil, fmt.Errorf("failed to fetch xyz meta: %w", err)
+		}
+	}
+
+	metaIndex := t.getXyzAssetIndex(coin)
+	if metaIndex < 0 {
+		return nil, fmt.Errorf("xyz asset %s not found in meta", coin)
+	}
+
+	const xyzPerpDexIndex = 1
+	assetIndex := 100000 + xyzPerpDexIndex*10000 + metaIndex
+
+	szDecimals := t.getXyzSzDecimals(coin)
+	multiplier := 1.0
+	for i := 0; i < szDecimals; i++ {
+		multiplier *= 10.0
+	}
+	roundedSize := float64(int(req.Quantity*multiplier+0.5)) / multiplier
+	roundedPrice := t.roundPriceToSigfigs(req.Price)
+
+	tif := hyperliquid.TifGtc
+	if req.PostOnly {
+		tif = hyperliquid.TifAlo
+	}
+
+	logger.Infof("📝 [xyz] PlaceLimitOrder: %s %s size=%.4f price=%.4f asset=%d tif=%s",
+		map[bool]string{true: "BUY", false: "SELL"}[isBuy], coin, roundedSize, roundedPrice, assetIndex, tif)
+
+	orderWire := hyperliquid.OrderWire{
+		Asset:      assetIndex,
+		IsBuy:      isBuy,
+		LimitPx:    floatToWireStr(roundedPrice),
+		Size:       floatToWireStr(roundedSize),
+		ReduceOnly: req.ReduceOnly,
+		OrderType: hyperliquid.OrderWireType{
+			Limit: &hyperliquid.OrderWireTypeLimit{
+				Tif: tif,
+			},
+		},
+	}
+
+	action := hyperliquid.OrderAction{
+		Type:     "order",
+		Orders:   []hyperliquid.OrderWire{orderWire},
+		Grouping: "na",
+		Builder:  nil,
+	}
+
+	nonce := time.Now().UnixMilli()
+	isMainnet := !t.isTestnet
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign xyz limit order: %w", err)
+	}
+
+	payload := map[string]any{
+		"action":    action,
+		"nonce":     nonce,
+		"signature": sig,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(t.ctx, http.MethodPost, t.apiBaseURL+"/exchange", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var result struct {
+		Status   string `json:"status"`
+		Response struct {
+			Type string `json:"type"`
+			Data struct {
+				Statuses []struct {
+					Resting *struct {
+						Oid int64 `json:"oid"`
+					} `json:"resting,omitempty"`
+					Filled *struct {
+						TotalSz string `json:"totalSz"`
+						AvgPx   string `json:"avgPx"`
+						Oid     int    `json:"oid"`
+					} `json:"filled,omitempty"`
+					Error *string `json:"error,omitempty"`
+				} `json:"statuses"`
+			} `json:"data"`
+		} `json:"response"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("xyz limit order response parse failed (status=%d): %s", resp.StatusCode, string(body))
+	}
+	if result.Status != "ok" {
+		return nil, fmt.Errorf("xyz limit order rejected: status=%s, body=%s", result.Status, string(body))
+	}
+
+	orderID := fmt.Sprintf("%d", time.Now().UnixNano())
+	status := "NEW"
+	if len(result.Response.Data.Statuses) > 0 {
+		s := result.Response.Data.Statuses[0]
+		if s.Error != nil {
+			return nil, fmt.Errorf("xyz limit order error: %s", *s.Error)
+		}
+		if s.Resting != nil {
+			orderID = fmt.Sprintf("%d", s.Resting.Oid)
+			logger.Infof("✅ [xyz] Limit order resting: oid=%d %s @ %.4f", s.Resting.Oid, coin, roundedPrice)
+		} else if s.Filled != nil {
+			orderID = fmt.Sprintf("%d", s.Filled.Oid)
+			status = "FILLED"
+			logger.Infof("✅ [xyz] Limit order filled: oid=%d totalSz=%s avgPx=%s", s.Filled.Oid, s.Filled.TotalSz, s.Filled.AvgPx)
+		}
+	}
+
+	return &types.LimitOrderResult{
+		OrderID:      orderID,
+		ClientID:     req.ClientID,
+		Symbol:       req.Symbol,
+		Side:         req.Side,
+		PositionSide: req.PositionSide,
+		Price:        roundedPrice,
+		Quantity:     roundedSize,
+		Status:       status,
+	}, nil
+}
+
 // CancelOrder cancels a specific order by ID
 // Implements GridTrader interface
 func (t *HyperliquidTrader) CancelOrder(symbol, orderID string) error {
 	coin := convertSymbolToHyperliquid(symbol)
 
-	// Parse order ID
 	oid, err := strconv.ParseInt(orderID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid order ID: %w", err)
+	}
+
+	if strings.HasPrefix(coin, "xyz:") {
+		if err := t.cancelXyzOrder(oid); err != nil {
+			return fmt.Errorf("failed to cancel xyz order: %w", err)
+		}
+		logger.Infof("✓ [Hyperliquid] xyz order cancelled: %s oid=%d", coin, oid)
+		return nil
 	}
 
 	_, err = t.exchange.Cancel(t.ctx, coin, oid)
