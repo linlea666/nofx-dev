@@ -34,6 +34,7 @@ type HyperliquidTrader struct {
 	xyzMetaMutex sync.RWMutex
 	privateKey   *ecdsa.PrivateKey // For xyz dex signing
 	isTestnet    bool
+	isPaper      bool
 	apiBaseURL   string // Centralized base URL (mainnet/testnet/paper) — all methods use this
 }
 
@@ -265,6 +266,7 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, network strin
 		isUnifiedAccount: unifiedAccount,
 		privateKey:       privateKey,
 		isTestnet:        network == "testnet",
+		isPaper:          isPaper,
 		apiBaseURL:       baseURL,
 	}, nil
 }

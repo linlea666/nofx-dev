@@ -514,12 +514,7 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 		return fmt.Errorf("failed to sign cancel action: %w", err)
 	}
 
-	payload := map[string]any{
-		"action":       action,
-		"nonce":        nonce,
-		"signature":    sig,
-		"vaultAddress": t.walletAddr,
-	}
+	payload := t.buildExchangePayload(action, nonce, sig)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -557,6 +552,22 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 	}
 
 	return nil
+}
+
+// buildExchangePayload constructs the standard /exchange endpoint payload.
+// HyPaper (paper trading) requires explicit vaultAddress because it cannot
+// derive wallet identity from EIP-712 signatures. Mainnet does NOT need it
+// (agent wallet authorization handles identity), so we only add it for paper.
+func (t *HyperliquidTrader) buildExchangePayload(action any, nonce int64, sig hyperliquid.SignatureResult) map[string]any {
+	payload := map[string]any{
+		"action":    action,
+		"nonce":     nonce,
+		"signature": sig,
+	}
+	if t.isPaper {
+		payload["vaultAddress"] = t.walletAddr
+	}
+	return payload
 }
 
 // floatToWireStr converts a float to wire format string (8 decimal places, trimmed zeros)
@@ -646,12 +657,7 @@ func (t *HyperliquidTrader) placeXyzOrder(coin string, isBuy bool, size float64,
 		return fmt.Errorf("failed to sign xyz dex order: %w", err)
 	}
 
-	payload := map[string]any{
-		"action":       action,
-		"nonce":        nonce,
-		"signature":    sig,
-		"vaultAddress": t.walletAddr,
-	}
+	payload := t.buildExchangePayload(action, nonce, sig)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -803,12 +809,7 @@ func (t *HyperliquidTrader) placeXyzTriggerOrder(coin string, isBuy bool, size f
 		return fmt.Errorf("failed to sign xyz dex trigger order: %w", err)
 	}
 
-	payload := map[string]any{
-		"action":       action,
-		"nonce":        nonce,
-		"signature":    sig,
-		"vaultAddress": t.walletAddr,
-	}
+	payload := t.buildExchangePayload(action, nonce, sig)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -1098,12 +1099,7 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 		return nil, fmt.Errorf("failed to sign xyz limit order: %w", err)
 	}
 
-	payload := map[string]any{
-		"action":       action,
-		"nonce":        nonce,
-		"signature":    sig,
-		"vaultAddress": t.walletAddr,
-	}
+	payload := t.buildExchangePayload(action, nonce, sig)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
