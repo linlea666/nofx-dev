@@ -269,7 +269,13 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	// Check if this is an xyz dex asset
 	if strings.HasPrefix(coin, "xyz:") {
-		return t.getXyzMarketPrice(coin)
+		price, err := t.getXyzMarketPrice(coin)
+		if err != nil && t.apiBaseURL != MainnetBaseURL {
+			// Paper/testnet may not serve xyz dex prices; fall back to mainnet (public data)
+			logger.Infof("⚠️ xyz dex price unavailable on %s, falling back to mainnet: %v", t.apiBaseURL, err)
+			return t.fetchXyzMidPrice(coin, MainnetBaseURL+"/info")
+		}
+		return price, err
 	}
 
 	// Get all market prices for crypto
@@ -290,9 +296,13 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 	return 0, fmt.Errorf("price not found for %s", symbol)
 }
 
-// getXyzMarketPrice gets market price for xyz dex assets
+// getXyzMarketPrice gets market price for xyz dex assets from the trader's configured API.
 func (t *HyperliquidTrader) getXyzMarketPrice(coin string) (float64, error) {
-	// Build request for xyz dex allMids
+	return t.fetchXyzMidPrice(coin, t.apiBaseURL+"/info")
+}
+
+// fetchXyzMidPrice fetches xyz dex mid price from a specific info endpoint URL.
+func (t *HyperliquidTrader) fetchXyzMidPrice(coin string, infoURL string) (float64, error) {
 	reqBody := map[string]string{
 		"type": "allMids",
 		"dex":  "xyz",
@@ -303,7 +313,7 @@ func (t *HyperliquidTrader) getXyzMarketPrice(coin string) (float64, error) {
 		return 0, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(t.ctx, "POST", t.apiBaseURL+"/info", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(t.ctx, "POST", infoURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -330,7 +340,6 @@ func (t *HyperliquidTrader) getXyzMarketPrice(coin string) (float64, error) {
 		return 0, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// The API returns keys with xyz: prefix, so ensure the coin has it
 	lookupKey := coin
 	if !strings.HasPrefix(lookupKey, "xyz:") {
 		lookupKey = "xyz:" + lookupKey
