@@ -165,9 +165,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 			tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
 		case "hyperliquid":
 			tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
-				string(exchangeCfg.APIKey), // private key
+				string(exchangeCfg.APIKey),
 				exchangeCfg.HyperliquidWalletAddr,
-				exchangeCfg.Testnet,
+				hyperliquidtrader.ResolveNetwork(exchangeCfg.HyperliquidNetwork, exchangeCfg.Testnet),
 				exchangeCfg.HyperliquidUnifiedAcct,
 			)
 		case "aster":

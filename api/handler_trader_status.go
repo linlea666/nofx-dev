@@ -71,7 +71,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
 			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
+			hyperliquidtrader.ResolveNetwork(exchangeCfg.HyperliquidNetwork, exchangeCfg.Testnet),
 			exchangeCfg.HyperliquidUnifiedAcct,
 		)
 	case "aster":
@@ -235,7 +235,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
 			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
+			hyperliquidtrader.ResolveNetwork(exchangeCfg.HyperliquidNetwork, exchangeCfg.Testnet),
 			exchangeCfg.HyperliquidUnifiedAcct,
 		)
 	case "aster":

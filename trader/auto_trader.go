@@ -67,8 +67,9 @@ type AutoTraderConfig struct {
 	// Hyperliquid configuration
 	HyperliquidPrivateKey  string
 	HyperliquidWalletAddr  string
-	HyperliquidTestnet     bool
-	HyperliquidUnifiedAcct bool // Unified Account mode: Spot USDC as Perp collateral
+	HyperliquidTestnet     bool   // Legacy — use HyperliquidNetwork instead
+	HyperliquidNetwork     string // "mainnet", "testnet", "paper" (resolved from Exchange config)
+	HyperliquidUnifiedAcct bool   // Unified Account mode: Spot USDC as Perp collateral
 
 	// Aster configuration
 	AsterUser       string // Aster main wallet address
@@ -248,8 +249,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		logger.Infof("🏦 [%s] Using KuCoin Futures trading", config.Name)
 		trader = kucoin.NewKuCoinTrader(config.KuCoinAPIKey, config.KuCoinSecretKey, config.KuCoinPassphrase)
 	case "hyperliquid":
-		logger.Infof("🏦 [%s] Using Hyperliquid trading", config.Name)
-		trader, err = hyperliquid.NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet, config.HyperliquidUnifiedAcct)
+		network := hyperliquid.ResolveNetwork(config.HyperliquidNetwork, config.HyperliquidTestnet)
+		logger.Infof("🏦 [%s] Using Hyperliquid trading (network=%s)", config.Name, network)
+		trader, err = hyperliquid.NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, network, config.HyperliquidUnifiedAcct)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Hyperliquid trader: %w", err)
 		}

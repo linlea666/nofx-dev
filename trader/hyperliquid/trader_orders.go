@@ -437,9 +437,7 @@ func (t *HyperliquidTrader) cancelXyzOrders(coin string) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	apiURL := "https://api.hyperliquid.xyz/info"
-
-	req, err := http.NewRequestWithContext(t.ctx, "POST", apiURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(t.ctx, "POST", t.apiBaseURL+"/info", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -522,17 +520,12 @@ func (t *HyperliquidTrader) cancelXyzOrder(oid int64) error {
 		"signature": sig,
 	}
 
-	apiURL := hyperliquid.MainnetAPIURL
-	if t.isTestnet {
-		apiURL = hyperliquid.TestnetAPIURL
-	}
-
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, apiURL+"/exchange", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, t.apiBaseURL+"/exchange", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -659,21 +652,15 @@ func (t *HyperliquidTrader) placeXyzOrder(coin string, isBuy bool, size float64,
 		"signature": sig,
 	}
 
-	// Determine API URL
-	apiURL := hyperliquid.MainnetAPIURL
-	if t.isTestnet {
-		apiURL = hyperliquid.TestnetAPIURL
-	}
-
 	// POST to /exchange
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	logger.Infof("📤 Sending xyz dex order to %s/exchange", apiURL)
+	logger.Infof("📤 Sending xyz dex order to %s/exchange", t.apiBaseURL)
 
-	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, apiURL+"/exchange", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, t.apiBaseURL+"/exchange", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -823,21 +810,15 @@ func (t *HyperliquidTrader) placeXyzTriggerOrder(coin string, isBuy bool, size f
 		"signature": sig,
 	}
 
-	// Determine API URL
-	apiURL := hyperliquid.MainnetAPIURL
-	if t.isTestnet {
-		apiURL = hyperliquid.TestnetAPIURL
-	}
-
 	// POST to /exchange
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	logger.Infof("📤 Sending xyz dex %s order to %s/exchange", tpsl, apiURL)
+	logger.Infof("📤 Sending xyz dex %s order to %s/exchange", tpsl, t.apiBaseURL)
 
-	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, apiURL+"/exchange", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, t.apiBaseURL+"/exchange", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

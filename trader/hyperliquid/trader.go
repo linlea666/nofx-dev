@@ -13,6 +13,13 @@ import (
 	"github.com/sonirico/go-hyperliquid"
 )
 
+const (
+	MainnetBaseURL = "https://api.hyperliquid.xyz"
+	TestnetBaseURL = "https://api.hyperliquid-testnet.xyz"
+	PaperBaseURL   = "https://api.hypaper.xyz"
+	PaperAPIURL    = PaperBaseURL + "/info"
+)
+
 // HyperliquidTrader Hyperliquid trader
 type HyperliquidTrader struct {
 	exchange         *hyperliquid.Exchange
@@ -27,6 +34,7 @@ type HyperliquidTrader struct {
 	xyzMetaMutex sync.RWMutex
 	privateKey   *ecdsa.PrivateKey // For xyz dex signing
 	isTestnet    bool
+	apiBaseURL   string // Centralized base URL (mainnet/testnet/paper) — all methods use this
 }
 
 // xyzDexMeta represents metadata for xyz dex assets
@@ -116,9 +124,49 @@ func absFloat(x float64) float64 {
 	return x
 }
 
+// ResolveNetwork resolves the effective network mode from the new HyperliquidNetwork field
+// with backward compatibility for the legacy Testnet bool.
+func ResolveNetwork(network string, testnetLegacy bool) string {
+	if network != "" {
+		return network
+	}
+	if testnetLegacy {
+		return "testnet"
+	}
+	return "mainnet"
+}
+
 // NewHyperliquidTrader creates a Hyperliquid trader
+// network: "mainnet", "testnet", or "paper"
 // unifiedAccount: when true, Spot USDC balance is used as collateral for Perp trading
-func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool, unifiedAccount bool) (*HyperliquidTrader, error) {
+func NewHyperliquidTrader(privateKeyHex string, walletAddr string, network string, unifiedAccount bool) (*HyperliquidTrader, error) {
+	isPaper := network == "paper"
+
+	// Select API URL based on network mode
+	var apiURL, baseURL string
+	switch network {
+	case "testnet":
+		apiURL = hyperliquid.TestnetAPIURL
+		baseURL = TestnetBaseURL
+	case "paper":
+		apiURL = PaperAPIURL
+		baseURL = PaperBaseURL
+	default:
+		apiURL = hyperliquid.MainnetAPIURL
+		baseURL = MainnetBaseURL
+	}
+
+	// Paper mode: auto-generate a random key pair if not provided
+	if isPaper && privateKeyHex == "" {
+		key, err := crypto.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate paper trading key: %w", err)
+		}
+		privateKeyHex = fmt.Sprintf("%x", crypto.FromECDSA(key))
+		walletAddr = crypto.PubkeyToAddress(key.PublicKey).Hex()
+		logger.Infof("✓ Paper trading mode: auto-generated wallet %s", walletAddr)
+	}
+
 	// Remove 0x prefix from private key (if present, case-insensitive)
 	privateKeyHex = strings.TrimPrefix(strings.ToLower(privateKeyHex), "0x")
 
@@ -128,51 +176,42 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	// Select API URL
-	apiURL := hyperliquid.MainnetAPIURL
-	if testnet {
-		apiURL = hyperliquid.TestnetAPIURL
-	}
-
-	// Security enhancement: Implement Agent Wallet best practices
-	// Reference: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets
 	agentAddr := crypto.PubkeyToAddress(*privateKey.Public().(*ecdsa.PublicKey)).Hex()
 
-	if walletAddr == "" {
-		return nil, fmt.Errorf("❌ Configuration error: Main wallet address (hyperliquid_wallet_addr) not provided\n" +
-			"🔐 Correct configuration pattern:\n" +
-			"  1. hyperliquid_private_key = Agent Private Key (for signing only, balance should be ~0)\n" +
-			"  2. hyperliquid_wallet_addr = Main Wallet Address (holds funds, never expose private key)\n" +
-			"💡 Please create an Agent Wallet on Hyperliquid official website and authorize it before configuration:\n" +
-			"   https://app.hyperliquid.xyz/ → Settings → API Wallets")
-	}
+	if !isPaper {
+		if walletAddr == "" {
+			return nil, fmt.Errorf("❌ Configuration error: Main wallet address (hyperliquid_wallet_addr) not provided\n" +
+				"🔐 Correct configuration pattern:\n" +
+				"  1. hyperliquid_private_key = Agent Private Key (for signing only, balance should be ~0)\n" +
+				"  2. hyperliquid_wallet_addr = Main Wallet Address (holds funds, never expose private key)\n" +
+				"💡 Please create an Agent Wallet on Hyperliquid official website and authorize it before configuration:\n" +
+				"   https://app.hyperliquid.xyz/ → Settings → API Wallets")
+		}
 
-	// Check if user accidentally uses main wallet private key (security risk)
-	if strings.EqualFold(walletAddr, agentAddr) {
-		logger.Infof("⚠️⚠️⚠️ WARNING: Main wallet address (%s) matches Agent wallet address!", walletAddr)
-		logger.Infof("   This indicates you may be using your main wallet private key, which poses extremely high security risks!")
-		logger.Infof("   Recommendation: Immediately create a separate Agent Wallet on Hyperliquid official website")
-		logger.Infof("   Reference: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets")
-	} else {
-		logger.Infof("✓ Using Agent Wallet mode (secure)")
-		logger.Infof("  └─ Agent wallet address: %s (for signing)", agentAddr)
-		logger.Infof("  └─ Main wallet address: %s (holds funds)", walletAddr)
+		if strings.EqualFold(walletAddr, agentAddr) {
+			logger.Infof("⚠️⚠️⚠️ WARNING: Main wallet address (%s) matches Agent wallet address!", walletAddr)
+			logger.Infof("   This indicates you may be using your main wallet private key, which poses extremely high security risks!")
+			logger.Infof("   Recommendation: Immediately create a separate Agent Wallet on Hyperliquid official website")
+		} else {
+			logger.Infof("✓ Using Agent Wallet mode (secure)")
+			logger.Infof("  └─ Agent wallet address: %s (for signing)", agentAddr)
+			logger.Infof("  └─ Main wallet address: %s (holds funds)", walletAddr)
+		}
 	}
 
 	ctx := context.Background()
 
-	// Create Exchange client (Exchange includes Info functionality)
 	exchange := hyperliquid.NewExchange(
 		ctx,
 		privateKey,
 		apiURL,
-		nil,        // Meta will be fetched automatically
-		"",         // vault address (empty for personal account)
-		walletAddr, // wallet address
-		nil,        // SpotMeta will be fetched automatically
+		nil,
+		"",
+		walletAddr,
+		nil,
 	)
 
-	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
+	logger.Infof("✓ Hyperliquid trader initialized (network=%s, url=%s, wallet=%s)", network, baseURL, walletAddr)
 
 	// Get meta information (including precision and other configurations)
 	meta, err := exchange.Info().Meta(ctx)
@@ -222,10 +261,11 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 		ctx:              ctx,
 		walletAddr:       walletAddr,
 		meta:             meta,
-		isCrossMargin:    true,           // Use cross margin mode by default
-		isUnifiedAccount: unifiedAccount, // Unified Account: Spot as Perp collateral
+		isCrossMargin:    true,
+		isUnifiedAccount: unifiedAccount,
 		privateKey:       privateKey,
-		isTestnet:        testnet,
+		isTestnet:        network == "testnet",
+		apiBaseURL:       baseURL,
 	}, nil
 }
 

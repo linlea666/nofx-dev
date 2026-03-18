@@ -59,9 +59,7 @@ func (t *HyperliquidTrader) fetchXyzMeta() error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	apiURL := "https://api.hyperliquid.xyz/info"
-
-	req, err := http.NewRequestWithContext(t.ctx, "POST", apiURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(t.ctx, "POST", t.apiBaseURL+"/info", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

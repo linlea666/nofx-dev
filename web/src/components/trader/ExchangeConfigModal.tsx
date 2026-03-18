@@ -51,7 +51,8 @@ interface ExchangeConfigModalProps {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    hyperliquidNetwork?: string
   ) => Promise<void>
   onDelete: (exchangeId: string) => void
   onClose: () => void
@@ -158,6 +159,7 @@ export function ExchangeConfigModal({
   const [secretKey, setSecretKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [testnet, setTestnet] = useState(false)
+  const [hyperliquidNetwork, setHyperliquidNetwork] = useState<'mainnet' | 'testnet' | 'paper'>('mainnet')
   const [showGuide, setShowGuide] = useState(false)
   const [serverIP, setServerIP] = useState<{ public_ip: string; message: string } | null>(null)
   const [loadingIP, setLoadingIP] = useState(false)
@@ -216,6 +218,7 @@ export function ExchangeConfigModal({
       setSecretKey(selectedExchange.secretKey || '')
       setPassphrase('')
       setTestnet(selectedExchange.testnet || false)
+      setHyperliquidNetwork((selectedExchange as any).hyperliquidNetwork || (selectedExchange.testnet ? 'testnet' : 'mainnet'))
       setAsterUser(selectedExchange.asterUser || '')
       setAsterSigner(selectedExchange.asterSigner || '')
       setAsterPrivateKey('')
@@ -321,8 +324,8 @@ export function ExchangeConfigModal({
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet)
       } else if (currentExchangeType === 'hyperliquid') {
-        if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), '', '', testnet, hyperliquidWalletAddr.trim())
+        if (hyperliquidNetwork !== 'paper' && (!apiKey.trim() || !hyperliquidWalletAddr.trim())) return
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), '', '', hyperliquidNetwork === 'testnet', hyperliquidWalletAddr.trim(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, hyperliquidNetwork)
       } else if (currentExchangeType === 'aster') {
         if (!asterUser.trim() || !asterSigner.trim() || !asterPrivateKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, '', '', '', testnet, undefined, asterUser.trim(), asterSigner.trim(), asterPrivateKey.trim())
@@ -663,28 +666,86 @@ export function ExchangeConfigModal({
               {/* Hyperliquid Fields */}
               {currentExchangeType === 'hyperliquid' && (
                 <>
-                  <div className="p-4 rounded-xl" style={{ background: 'rgba(127, 231, 204, 0.1)', border: '1px solid rgba(127, 231, 204, 0.3)' }}>
-                    <div className="flex items-start gap-2">
-                      <span style={{ fontSize: '16px' }}>🔐</span>
-                      <div>
-                        <div className="text-sm font-semibold mb-1" style={{ color: '#7FE7CC' }}>{t('hyperliquidAgentWalletTitle', language)}</div>
-                        <div className="text-xs" style={{ color: '#848E9C' }}>{t('hyperliquidAgentWalletDesc', language)}</div>
+                  {/* Network Mode Selector */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>
+                      {language === 'zh' ? '网络模式' : 'Network Mode'}
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        { key: 'mainnet' as const, label: language === 'zh' ? '主网 (实盘)' : 'Mainnet', color: '#F0B90B' },
+                        { key: 'testnet' as const, label: language === 'zh' ? '测试网' : 'Testnet', color: '#7FE7CC' },
+                        { key: 'paper' as const, label: language === 'zh' ? '模拟盘 (HyPaper)' : 'Paper (HyPaper)', color: '#3B82F6' },
+                      ]).map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setHyperliquidNetwork(opt.key)}
+                          className="px-3 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                          style={{
+                            background: hyperliquidNetwork === opt.key ? `${opt.color}20` : '#0B0E11',
+                            border: `1px solid ${hyperliquidNetwork === opt.key ? opt.color : '#2B3139'}`,
+                            color: hyperliquidNetwork === opt.key ? opt.color : '#848E9C',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Paper mode info banner */}
+                  {hyperliquidNetwork === 'paper' && (
+                    <div className="p-4 rounded-xl" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                      <div className="flex items-start gap-2">
+                        <span style={{ fontSize: '16px' }}>📋</span>
+                        <div>
+                          <div className="text-sm font-semibold mb-1" style={{ color: '#3B82F6' }}>
+                            {language === 'zh' ? 'HyPaper 模拟交易' : 'HyPaper Paper Trading'}
+                          </div>
+                          <div className="text-xs" style={{ color: '#848E9C' }}>
+                            {language === 'zh'
+                              ? '使用真实主网行情 + 模拟资金交易，无需私钥。API 与 Hyperliquid 完全兼容，订单基于真实 L2 订单簿深度模拟成交。'
+                              : 'Real mainnet prices + simulated funds. No private key needed. Orders are filled using real L2 order book depth with VWAP slippage.'}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidAgentPrivateKey', language)}</label>
-                    <div className="flex gap-2">
-                      <input type="text" value={maskSecret(apiKey)} readOnly placeholder={t('enterHyperliquidAgentPrivateKey', language)} className="flex-1 px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} />
-                      <button type="button" onClick={() => setSecureInputTarget('hyperliquid')} className="px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:scale-105" style={{ background: '#7FE7CC', color: '#000' }}>
-                        {apiKey ? t('secureInputReenter', language) : t('secureInputButton', language)}
-                      </button>
+                  )}
+
+                  {/* Agent wallet info (mainnet/testnet only) */}
+                  {hyperliquidNetwork !== 'paper' && (
+                    <div className="p-4 rounded-xl" style={{ background: 'rgba(127, 231, 204, 0.1)', border: '1px solid rgba(127, 231, 204, 0.3)' }}>
+                      <div className="flex items-start gap-2">
+                        <span style={{ fontSize: '16px' }}>🔐</span>
+                        <div>
+                          <div className="text-sm font-semibold mb-1" style={{ color: '#7FE7CC' }}>{t('hyperliquidAgentWalletTitle', language)}</div>
+                          <div className="text-xs" style={{ color: '#848E9C' }}>{t('hyperliquidAgentWalletDesc', language)}</div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidMainWalletAddress', language)}</label>
-                    <input type="text" value={hyperliquidWalletAddr} onChange={(e) => setHyperliquidWalletAddr(e.target.value)} placeholder={t('enterHyperliquidMainWalletAddress', language)} className="w-full px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} required />
-                  </div>
+                  )}
+
+                  {/* Private key (mainnet/testnet only) */}
+                  {hyperliquidNetwork !== 'paper' && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidAgentPrivateKey', language)}</label>
+                      <div className="flex gap-2">
+                        <input type="text" value={maskSecret(apiKey)} readOnly placeholder={t('enterHyperliquidAgentPrivateKey', language)} className="flex-1 px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} />
+                        <button type="button" onClick={() => setSecureInputTarget('hyperliquid')} className="px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:scale-105" style={{ background: '#7FE7CC', color: '#000' }}>
+                          {apiKey ? t('secureInputReenter', language) : t('secureInputButton', language)}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Wallet address (mainnet/testnet only) */}
+                  {hyperliquidNetwork !== 'paper' && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidMainWalletAddress', language)}</label>
+                      <input type="text" value={hyperliquidWalletAddr} onChange={(e) => setHyperliquidWalletAddr(e.target.value)} placeholder={t('enterHyperliquidMainWalletAddress', language)} className="w-full px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} required />
+                    </div>
+                  )}
                 </>
               )}
 

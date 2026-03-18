@@ -567,7 +567,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    hyperliquidNetwork?: string
   ) => {
     try {
       if (exchangeId) {
@@ -585,6 +586,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               secret_key: secretKey || '',
               passphrase: passphrase || '',
               testnet: testnet || false,
+              hyperliquid_network: hyperliquidNetwork || '',
               hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
               aster_user: asterUser || '',
               aster_signer: asterSigner || '',
@@ -611,6 +613,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           secret_key: secretKey || '',
           passphrase: passphrase || '',
           testnet: testnet || false,
+          hyperliquid_network: hyperliquidNetwork || '',
           hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
           aster_user: asterUser || '',
           aster_signer: asterSigner || '',
