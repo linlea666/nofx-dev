@@ -22,6 +22,8 @@ export const translations = {
     dashboardNav: 'Dashboard',
     strategyNav: 'Strategy',
     faqNav: 'FAQ',
+    logsNav: 'Logs',
+    logsPageTitle: 'Runtime Logs',
 
     // Footer
     footerTitle: 'NOFX - AI Trading System',
@@ -1357,6 +1359,8 @@ export const translations = {
     dashboardNav: '看板',
     strategyNav: '策略',
     faqNav: '常见问题',
+    logsNav: '日志',
+    logsPageTitle: '运行日志',
 
     // Footer
     footerTitle: 'NOFX - AI交易系统',
@@ -2632,6 +2636,8 @@ export const translations = {
     dashboardNav: 'Dasbor',
     strategyNav: 'Strategi',
     faqNav: 'FAQ',
+    logsNav: 'Log',
+    logsPageTitle: 'Log Sistem',
 
     // Footer
     footerTitle: 'NOFX - Sistem Trading AI',

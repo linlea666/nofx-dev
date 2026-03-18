@@ -101,6 +101,7 @@ func Init(cfg *Config) error {
 	}
 
 	Log.SetReportCaller(true)
+	Log.AddHook(GlobalRingBuffer)
 
 	return nil
 }

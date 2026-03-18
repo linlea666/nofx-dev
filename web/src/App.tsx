@@ -13,6 +13,7 @@ import { CompetitionPage } from './components/trader/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
+import LogsPage from './pages/LogsPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
 import { LoginRequiredOverlay } from './components/auth/LoginRequiredOverlay'
@@ -42,6 +43,7 @@ type Page =
   | 'strategy-market'
   | 'data'
   | 'faq'
+  | 'logs'
   | 'login'
   | 'register'
 
@@ -67,6 +69,7 @@ function App() {
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/data' || hash === 'data') return 'data'
+    if (path === '/logs' || hash === 'logs') return 'logs'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
     return 'competition' // 默认为竞赛页面
@@ -87,6 +90,7 @@ function App() {
       'competition': '/competition',
       'strategy-market': '/strategy-market',
       'data': '/data',
+      'logs': '/logs',
       'traders': '/traders',
       'trader': '/dashboard',
       'strategy': '/strategy',
@@ -402,6 +406,7 @@ function App() {
         'data': '/data',
         'competition': '/competition',
         'strategy-market': '/strategy-market',
+        'logs': '/logs',
         'traders': '/traders',
         'trader': '/dashboard',
         'strategy': '/strategy',
@@ -491,6 +496,8 @@ function App() {
               />
             ) : currentPage === 'strategy' ? (
               <StrategyStudioPage />
+            ) : currentPage === 'logs' ? (
+              <LogsPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

@@ -13,6 +13,7 @@ type Page =
   | 'strategy-market'
   | 'data'
   | 'faq'
+  | 'logs'
   | 'login'
   | 'register'
 
@@ -99,6 +100,7 @@ export default function HeaderBar({
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
+                { page: 'logs', path: '/logs', label: t('logsNav', language), requiresAuth: true },
                 { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
               ]
 
@@ -340,6 +342,7 @@ export default function HeaderBar({
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
+                    { page: 'logs', path: '/logs', label: t('logsNav', language), requiresAuth: true },
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                   ]
 

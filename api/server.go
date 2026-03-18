@@ -170,6 +170,20 @@ Body: {"show_in_competition":<bool>}`,
 				`:id = trader_id from GET /api/my-traders.`,
 				s.handleGetGridRiskInfo)
 
+			// Runtime logs
+			s.routeWithSchema(protected, "GET", "/logs", "System runtime logs (live view from ring buffer)",
+				`Query: ?since_id=0&limit=200&level=info&category=grid
+Returns: {"entries":[{"id":1,"timestamp":"...","level":"INFO","source":"...","category":"grid","message":"..."}],"latest_id":123}
+category: grid / exchange / ai / system (empty=all). level: debug/info/warn/error (empty=all).`,
+				s.handleGetLogs)
+			s.routeWithSchema(protected, "GET", "/logs/export", "Export logs as CSV/JSON file download",
+				`Query: ?format=csv&category=grid&date=2026-03-18&level=info
+format: csv or json. date: YYYY-MM-DD (default today). Returns downloadable file.`,
+				s.handleExportLogs)
+			s.routeWithSchema(protected, "GET", "/logs/dates", "Available log file dates",
+				`Returns: ["2026-03-17","2026-03-18"]`,
+				s.handleGetLogDates)
+
 			// AI model configuration
 			s.routeWithSchema(protected, "GET", "/models", "List AI model configs",
 				`Returns: [{"id":"<EXACT id — use this as ai_model_id when creating/updating a trader>","name":"<display name>","provider":"<short provider name — NOT a valid id>","enabled":<bool>}]
