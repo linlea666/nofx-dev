@@ -1,10 +1,17 @@
 package hyperliquid
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"nofx/logger"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/sonirico/go-hyperliquid"
 )
 
 // GetPositions gets all positions (including xyz dex positions)
@@ -152,16 +159,86 @@ func (t *HyperliquidTrader) SetMarginMode(symbol string, isCrossMargin bool) err
 
 // SetLeverage sets leverage
 func (t *HyperliquidTrader) SetLeverage(symbol string, leverage int) error {
-	// Hyperliquid symbol format (remove USDT suffix)
 	coin := convertSymbolToHyperliquid(symbol)
 
-	// Call UpdateLeverage (leverage int, name string, isCross bool)
-	// Third parameter: true=cross margin mode, false=isolated margin mode
+	if strings.HasPrefix(coin, "xyz:") {
+		return t.setXyzLeverage(coin, leverage)
+	}
+
 	_, err := t.exchange.UpdateLeverage(t.ctx, leverage, coin, t.isCrossMargin)
 	if err != nil {
 		return fmt.Errorf("failed to set leverage: %w", err)
 	}
 
 	logger.Infof("  ✓ %s leverage switched to %dx", symbol, leverage)
+	return nil
+}
+
+// setXyzLeverage sets leverage for xyz DEX assets via direct API call
+func (t *HyperliquidTrader) setXyzLeverage(coin string, leverage int) error {
+	t.xyzMetaMutex.RLock()
+	hasMeta := t.xyzMeta != nil
+	t.xyzMetaMutex.RUnlock()
+
+	if !hasMeta {
+		if err := t.fetchXyzMeta(); err != nil {
+			return fmt.Errorf("failed to fetch xyz meta: %w", err)
+		}
+	}
+
+	metaIndex := t.getXyzAssetIndex(coin)
+	if metaIndex < 0 {
+		return fmt.Errorf("xyz asset %s not found in meta", coin)
+	}
+
+	const xyzPerpDexIndex = 1
+	assetIndex := 100000 + xyzPerpDexIndex*10000 + metaIndex
+
+	action := map[string]interface{}{
+		"type":    "updateLeverage",
+		"asset":   assetIndex,
+		"isCross": t.isCrossMargin,
+		"leverage": leverage,
+	}
+
+	nonce := time.Now().UnixMilli()
+	isMainnet := !t.isTestnet
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
+	if err != nil {
+		return fmt.Errorf("failed to sign xyz leverage update: %w", err)
+	}
+
+	payload := t.buildExchangePayload(action, nonce, sig)
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, t.apiBaseURL+"/exchange", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to set xyz leverage: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || result.Status != "ok" {
+		return fmt.Errorf("xyz leverage update failed: %s", string(body))
+	}
+
+	logger.Infof("  ✓ %s leverage switched to %dx (xyz dex)", coin, leverage)
 	return nil
 }

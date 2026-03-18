@@ -980,8 +980,7 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 	isXyz := strings.HasPrefix(coin, "xyz:")
 	isBuy := req.Side == "BUY"
 
-	// Set leverage if specified (skip for xyz dex)
-	if req.Leverage > 0 && !isXyz {
+	if req.Leverage > 0 {
 		if err := t.SetLeverage(req.Symbol, req.Leverage); err != nil {
 			logger.Warnf("[Hyperliquid] Failed to set leverage: %v", err)
 		}
