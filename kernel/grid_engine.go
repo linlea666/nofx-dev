@@ -205,6 +205,14 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 距离当前价格最近的 1-2 层可优先下单
 - 如果市场正处于趋势状态，先 hold 观望再铺单
 
+### 网格重新居中规则 (adjust_grid)
+当出现以下任一条件时，应执行 adjust_grid 以当前价格为中心重新部署网格：
+- 当前价格**逼近或超出**网格边界（距上/下边界不足1个间距）
+- 买单层级**全部为空**（只剩卖单）或卖单层级**全部为空**（只剩买单），说明网格已单边失衡
+- 价格从网格中心偏移超过网格总范围的40%%
+
+注意：adjust_grid 会取消所有现有订单并重新铺单，因此只在确实需要时使用。如果只是1-2个层级需要调整，优先用 cancel_order + place_buy/sell_limit 组合。
+
 ### 下单数量计算
 每层下单数量 = 每层名义金额 ÷ 该层价格
 例如: 名义金额 $%.0f ÷ 价格 $5000 = 数量 %.4f
@@ -275,6 +283,14 @@ When all levels are in empty state, place orders as follows:
 - Levels **above** current price: place_sell_limit (sell on rise)
 - Prioritize the 1-2 levels closest to current price
 - If market is trending, hold and observe before placing orders
+
+### Grid Recenter Rules (adjust_grid)
+Execute adjust_grid to redeploy the grid centered on current price when ANY of these conditions is met:
+- Current price is **approaching or beyond** a grid boundary (within 1 spacing of upper/lower bound)
+- All buy levels are **empty** (only sell orders remain) or all sell levels are **empty** (only buy orders remain) — grid is imbalanced
+- Price has drifted more than 40%% of total grid range from center
+
+Note: adjust_grid cancels ALL existing orders and re-initializes. Use only when truly needed. For minor adjustments (1-2 levels), prefer cancel_order + place_buy/sell_limit combo.
 
 ### Order Quantity Calculation
 Per-level quantity = per-level notional ÷ level price
