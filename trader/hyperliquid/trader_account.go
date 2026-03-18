@@ -145,6 +145,7 @@ func (t *HyperliquidTrader) GetBalance() (map[string]interface{}, error) {
 
 	result["totalWalletBalance"] = totalWalletBalance       // Total assets (Perp + Spot + xyz) - unrealized
 	result["totalEquity"] = totalEquityCalculated           // Total equity = Perp AV + Spot + xyz AV
+	result["total_equity"] = totalEquityCalculated          // snake_case alias (convention used by grid engine and other exchanges)
 	result["availableBalance"] = availableBalance           // Available balance (Perp + Spot if unified)
 	result["totalUnrealizedProfit"] = totalUnrealizedPnlAll // Unrealized PnL (Perpetuals + xyz)
 	result["spotBalance"] = spotUSDCBalance                 // Spot balance

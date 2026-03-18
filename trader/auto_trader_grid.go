@@ -6,6 +6,7 @@ import (
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
+	"nofx/provider/macro"
 	"nofx/store"
 	"sync"
 	"time"
@@ -505,6 +506,17 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 
 	// Build base context from market data
 	ctx := kernel.BuildGridContextFromMarketData(mktData, gridConfig)
+
+	// For gold/commodity assets, fetch macro data and mark as xyz
+	if kernel.IsGoldAsset(gridConfig.Symbol) || kernel.IsXyzAsset(gridConfig.Symbol) {
+		ctx.IsXyzAsset = true
+		macroData := macro.FetchGoldMacro()
+		if macroData != nil {
+			ctx.MacroData = macroData
+			logger.Infof("📊 [Grid] Macro data loaded: DXY=%.2f VIX=%.2f US10Y=%.3f%% (errors: %d)",
+				macroData.DXY.Value, macroData.VIX.Value, macroData.US10YYield.Value, len(macroData.Errors))
+		}
+	}
 
 	// Add grid state
 	at.gridState.mu.RLock()

@@ -6,6 +6,7 @@ import (
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
+	"nofx/provider/macro"
 	"nofx/store"
 	"strings"
 	"time"
@@ -87,6 +88,12 @@ type GridContext struct {
 
 	// Grid direction (neutral, long, short, long_bias, short_bias)
 	CurrentDirection string `json:"current_direction,omitempty"`
+
+	// Macro data for commodity/forex assets (gold, silver, etc.)
+	MacroData *macro.GoldMacroData `json:"macro_data,omitempty"`
+
+	// Whether this is an xyz dex asset (gold, silver, forex, stocks)
+	IsXyzAsset bool `json:"is_xyz_asset,omitempty"`
 }
 
 // ============================================================================
@@ -132,14 +139,37 @@ func ResolveGridPromptThresholds(config *store.GridStrategyConfig) GridPromptThr
 // ============================================================================
 
 // BuildGridSystemPrompt builds the system prompt for grid trading AI
+// IsGoldAsset detects if the symbol is a gold-related asset.
+func IsGoldAsset(symbol string) bool {
+	s := strings.ToUpper(symbol)
+	s = strings.TrimPrefix(s, "XYZ:")
+	for _, suffix := range []string{"USDT", "USD", "-USDC", "-USD"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	return s == "GOLD" || s == "XAUUSD" || s == "XAU"
+}
+
+// IsXyzAsset detects if the symbol is an xyz dex asset (commodities, stocks, forex).
+func IsXyzAsset(symbol string) bool {
+	return strings.Contains(strings.ToLower(symbol), "xyz:") || IsGoldAsset(symbol)
+}
+
 func BuildGridSystemPrompt(config *store.GridStrategyConfig, lang string) string {
 	t := ResolveGridPromptThresholds(config)
 	logger.Debugf("[Grid] Prompt thresholds: ranging BB<%.1f%% EMA<%.1f%%, trending BB>%.1f%% EMA>%.1f%% (lang=%s)",
 		t.RangingBBWidth, t.RangingEMADist, t.TrendingBBWidth, t.TrendingEMADist, lang)
 	if lang == "zh" {
-		return buildGridSystemPromptZh(config)
+		base := buildGridSystemPromptZh(config)
+		if IsGoldAsset(config.Symbol) {
+			return base + goldSystemPromptZh()
+		}
+		return base
 	}
-	return buildGridSystemPromptEn(config)
+	base := buildGridSystemPromptEn(config)
+	if IsGoldAsset(config.Symbol) {
+		return base + goldSystemPromptEn()
+	}
+	return base
 }
 
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
@@ -252,6 +282,62 @@ Example:
 		config.Symbol, config.Symbol)
 }
 
+// ── Gold-Specific System Prompt Extensions ──────────────────────────────────
+
+func goldSystemPromptZh() string {
+	return `
+## 黄金交易专业知识
+
+### 黄金特有的宏观驱动因子
+你在做网格决策时，**必须**结合以下宏观数据（如果提供）:
+1. **美元指数 (DXY)**: 黄金以美元计价，DXY上涨→金价下跌，反之亦然。相关系数约-0.8。DXY日涨幅>0.5%时应偏空
+2. **美国实际利率 (10Y国债收益率)**: 收益率上升→持有黄金机会成本增加→金价承压。收益率单日上行>5bp应偏空
+3. **VIX恐慌指数**: VIX>25→市场恐慌→避险买金，利多；VIX<15→风险偏好强→金价承压
+4. **USD/JPY**: 日元与黄金同为避险资产，USD/JPY下跌(日元走强)→通常金价上涨
+5. **美股(S&P500/NASDAQ)**: 股市暴跌→避险资金流入黄金；但温和下跌可能两者同跌(流动性紧缩)
+6. **COMEX持仓量**: 持仓量骤增→大资金进场，趋势可能延续；持仓量下降→兴趣减弱
+
+### 黄金波动特征
+- 黄金日波动通常 0.5-1.5%，远小于加密货币
+- 伦敦/纽约交叉时段(北京时间20:00-01:00)波动最大
+- 亚盘(北京时间09:00-15:00)通常低波动，适合网格
+
+### 黄金网格决策要点
+- 当DXY+美债收益率同时上行 → 强烈建议 pause_grid 或收窄网格
+- 当VIX飙升+美股暴跌 → 金价可能单边上涨，建议 pause_grid 等突破结束
+- 当宏观面中性+技术面震荡 → 最佳网格运行环境，可适当放宽网格间距
+- 非农数据、CPI、FOMC会议前后，建议暂停网格或降低仓位
+- 注意: 对于黄金，忽略"资金费率"和"Binance持仓量"指标(不适用)
+`
+}
+
+func goldSystemPromptEn() string {
+	return `
+## Gold Trading Expertise
+
+### Gold-Specific Macro Drivers
+When making grid decisions, you **MUST** incorporate these macro indicators (if provided):
+1. **DXY (US Dollar Index)**: Gold is priced in USD. DXY up → gold down (correlation ~-0.8). DXY daily gain >0.5% → lean bearish
+2. **US 10Y Treasury Yield**: Rising yields → higher opportunity cost of holding gold → bearish pressure. Daily rise >5bp → lean bearish
+3. **VIX (Fear Index)**: VIX >25 → panic → flight to gold (bullish). VIX <15 → risk-on → gold bearish
+4. **USD/JPY**: JPY and gold are both safe havens. USD/JPY falling (JPY strengthening) → usually gold bullish
+5. **US Equities (S&P500/NASDAQ)**: Crash → safe-haven inflows to gold; but mild decline may hurt both (liquidity drain)
+6. **COMEX Open Interest**: OI surge → big money entering, trend may continue; OI declining → interest fading
+
+### Gold Volatility Characteristics
+- Gold daily volatility is typically 0.5-1.5%, far less than crypto
+- London/NY crossover session (20:00-01:00 Beijing time) has highest volatility
+- Asian session (09:00-15:00 Beijing time) is typically low volatility, ideal for grid
+
+### Gold Grid Decision Guidelines
+- When DXY + yields both rising → strongly recommend pause_grid or narrow grid range
+- When VIX spiking + equities crashing → gold may run one-directional, recommend pause_grid until breakout settles
+- When macro neutral + technicals ranging → best grid environment, can widen grid spacing
+- Around NFP, CPI, FOMC → recommend pausing grid or reducing position size
+- Note: Ignore "Funding Rate" and "Binance OI" indicators for gold (not applicable)
+`
+}
+
 // BuildGridUserPrompt builds the user prompt with current grid context
 func BuildGridUserPrompt(ctx *GridContext, lang string) string {
 	if lang == "zh" {
@@ -276,8 +362,15 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f, EMA50: $%.2f, 距离: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
 	sb.WriteString(fmt.Sprintf("- RSI14: %.1f\n", ctx.RSI14))
 	sb.WriteString(fmt.Sprintf("- MACD: %.4f, Signal: %.4f, Histogram: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
-	sb.WriteString(fmt.Sprintf("- 资金费率: %.4f%%\n", ctx.FundingRate*100))
+	if !ctx.IsXyzAsset {
+		sb.WriteString(fmt.Sprintf("- 资金费率: %.4f%%\n", ctx.FundingRate*100))
+	}
 	sb.WriteString("\n")
+
+	// Macro data section (for gold/commodity assets)
+	if ctx.MacroData != nil {
+		sb.WriteString(ctx.MacroData.FormatForPromptZh())
+	}
 
 	// Box Indicator Section
 	if ctx.BoxData != nil {
@@ -387,8 +480,15 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f, EMA50: $%.2f, Distance: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
 	sb.WriteString(fmt.Sprintf("- RSI14: %.1f\n", ctx.RSI14))
 	sb.WriteString(fmt.Sprintf("- MACD: %.4f, Signal: %.4f, Histogram: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
-	sb.WriteString(fmt.Sprintf("- Funding Rate: %.4f%%\n", ctx.FundingRate*100))
+	if !ctx.IsXyzAsset {
+		sb.WriteString(fmt.Sprintf("- Funding Rate: %.4f%%\n", ctx.FundingRate*100))
+	}
 	sb.WriteString("\n")
+
+	// Macro data section (for gold/commodity assets)
+	if ctx.MacroData != nil {
+		sb.WriteString(ctx.MacroData.FormatForPromptEn())
+	}
 
 	// Box Indicator Section
 	if ctx.BoxData != nil {
@@ -637,7 +737,7 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 		}
 	}
 
-	// Extract longer term context
+	// Extract longer term context (prefer LongerTermContext, fallback to TimeframeData["4h"])
 	if mktData.LongerTermContext != nil {
 		if ctx.ATR14 == 0 {
 			ctx.ATR14 = mktData.LongerTermContext.ATR14
@@ -645,8 +745,28 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 		ctx.EMA50 = mktData.LongerTermContext.EMA50
 	}
 
+	// Fallback: extract EMA50 and ATR14 from TimeframeData["4h"] when LongerTermContext is nil
+	// This happens when grid uses GetWithTimeframes() which populates TimeframeData but not LongerTermContext
+	if ctx.EMA50 == 0 && mktData.TimeframeData != nil {
+		if tf4h, ok := mktData.TimeframeData["4h"]; ok {
+			if len(tf4h.EMA50Values) > 0 {
+				ctx.EMA50 = tf4h.EMA50Values[len(tf4h.EMA50Values)-1]
+			}
+			if ctx.ATR14 == 0 {
+				ctx.ATR14 = tf4h.ATR14
+			}
+		}
+	}
+
 	ctx.EMA20 = mktData.CurrentEMA20
 	ctx.MACD = mktData.CurrentMACD
+
+	// Fallback: extract EMA20 from TimeframeData["5m"] when CurrentEMA20 is zero
+	if ctx.EMA20 == 0 && mktData.TimeframeData != nil {
+		if tf5m, ok := mktData.TimeframeData["5m"]; ok && len(tf5m.EMA20Values) > 0 {
+			ctx.EMA20 = tf5m.EMA20Values[len(tf5m.EMA20Values)-1]
+		}
+	}
 
 	// Calculate EMA distance
 	if ctx.EMA50 > 0 {
