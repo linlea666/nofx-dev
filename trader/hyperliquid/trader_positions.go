@@ -203,7 +203,7 @@ func (t *HyperliquidTrader) setXyzLeverage(coin string, leverage int) error {
 
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, t.signingVaultAddr(), nonce, nil, isMainnet)
 	if err != nil {
 		return fmt.Errorf("failed to sign xyz leverage update: %w", err)
 	}

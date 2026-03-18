@@ -522,7 +522,7 @@ func (t *HyperliquidTrader) cancelXyzOrder(coin string, oid int64) error {
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
 
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, t.signingVaultAddr(), nonce, nil, isMainnet)
 	if err != nil {
 		return fmt.Errorf("failed to sign cancel action: %w", err)
 	}
@@ -568,6 +568,16 @@ func (t *HyperliquidTrader) cancelXyzOrder(coin string, oid int64) error {
 	}
 
 	return nil
+}
+
+// signingVaultAddr returns the vault address to use in SignL1Action.
+// Must match what buildExchangePayload puts in the payload, otherwise
+// the EIP-712 hash diverges and Hyperliquid recovers a wrong signer.
+func (t *HyperliquidTrader) signingVaultAddr() string {
+	if t.isPaper || t.isAgentMode {
+		return t.walletAddr
+	}
+	return ""
 }
 
 // buildExchangePayload constructs the standard /exchange endpoint payload.
@@ -666,9 +676,8 @@ func (t *HyperliquidTrader) placeXyzOrder(coin string, isBuy bool, size float64,
 	// Sign the action
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
-	vaultAddress := "" // No vault for personal account
 
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, vaultAddress, nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, t.signingVaultAddr(), nonce, nil, isMainnet)
 	if err != nil {
 		return fmt.Errorf("failed to sign xyz dex order: %w", err)
 	}
@@ -818,9 +827,8 @@ func (t *HyperliquidTrader) placeXyzTriggerOrder(coin string, isBuy bool, size f
 	// Sign the action
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
-	vaultAddress := ""
 
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, vaultAddress, nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, t.signingVaultAddr(), nonce, nil, isMainnet)
 	if err != nil {
 		return fmt.Errorf("failed to sign xyz dex trigger order: %w", err)
 	}
@@ -1109,7 +1117,7 @@ func (t *HyperliquidTrader) placeXyzLimitOrder(coin string, isBuy bool, req *typ
 
 	nonce := time.Now().UnixMilli()
 	isMainnet := !t.isTestnet
-	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, isMainnet)
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, t.signingVaultAddr(), nonce, nil, isMainnet)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign xyz limit order: %w", err)
 	}
