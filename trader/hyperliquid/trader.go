@@ -149,7 +149,7 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, network strin
 		apiURL = hyperliquid.TestnetAPIURL
 		baseURL = TestnetBaseURL
 	case "paper":
-		apiURL = PaperAPIURL
+		apiURL = PaperBaseURL // go-hyperliquid library expects base URL without /info suffix
 		baseURL = PaperBaseURL
 	default:
 		apiURL = hyperliquid.MainnetAPIURL
