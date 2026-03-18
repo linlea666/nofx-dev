@@ -174,6 +174,7 @@ func BuildGridSystemPrompt(config *store.GridStrategyConfig, lang string) string
 
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	t := ResolveGridPromptThresholds(config)
+	perLevelNotional := config.TotalInvestment * float64(config.Leverage) / float64(config.GridCount)
 	return fmt.Sprintf(`# 你是一个专业的网格交易AI
 
 ## 角色定义
@@ -188,6 +189,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 总投资: %.2f USDT
 - 杠杆: %dx
 - 价格分布: %s
+- 每层名义金额: ~$%.0f (总投资×杠杆÷层数)
 
 ## 决策规则
 
@@ -195,6 +197,17 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - **震荡市场** (适合网格): 布林带宽度 < %.1f%%, EMA20/50 距离 < %.1f%%, 价格在布林带中轨附近
 - **趋势市场** (暂停网格): 布林带宽度 > %.1f%%, EMA20/50 距离 > %.1f%%, 价格持续突破布林带
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
+
+### 网格初始化规则
+当所有层级都为 empty 状态时，应按以下逻辑铺单：
+- 当前价格**以下**的层级: 下 place_buy_limit（等价格回落买入）
+- 当前价格**以上**的层级: 下 place_sell_limit（等价格上涨卖出）
+- 距离当前价格最近的 1-2 层可优先下单
+- 如果市场正处于趋势状态，先 hold 观望再铺单
+
+### 下单数量计算
+每层下单数量 = 每层名义金额 ÷ 该层价格
+例如: 名义金额 $%.0f ÷ 价格 $5000 = 数量 %.4f
 
 ### 可执行的操作
 - place_buy_limit: 在指定价格下买入限价单
@@ -211,7 +224,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - symbol: 交易对
 - action: 操作类型
 - price: 价格（限价单用）
-- quantity: 数量
+- quantity: 数量（按每层名义金额÷价格计算）
 - level_index: 网格层级索引
 - order_id: 订单ID（取消订单用）
 - confidence: 置信度 0-100
@@ -219,16 +232,20 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 示例:
 [
-  {"symbol": "%s", "action": "place_buy_limit", "price": 94000, "quantity": 0.01, "level_index": 2, "confidence": 85, "reasoning": "第2层价格接近，下买单"},
+  {"symbol": "%s", "action": "place_buy_limit", "price": %s, "quantity": %s, "level_index": 2, "confidence": 85, "reasoning": "第2层价格接近，下买单"},
   {"symbol": "%s", "action": "hold", "confidence": 90, "reasoning": "市场震荡，保持当前网格"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution,
+		perLevelNotional,
 		t.RangingBBWidth, t.RangingEMADist, t.TrendingBBWidth, t.TrendingEMADist,
-		config.Symbol, config.Symbol)
+		perLevelNotional, perLevelNotional/5000,
+		config.Symbol, gridExamplePrice(config), gridExampleQty(config),
+		config.Symbol)
 }
 
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 	t := ResolveGridPromptThresholds(config)
+	perLevelNotional := config.TotalInvestment * float64(config.Leverage) / float64(config.GridCount)
 	return fmt.Sprintf(`# You are a Professional Grid Trading AI
 
 ## Role Definition
@@ -243,6 +260,7 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - Total Investment: %.2f USDT
 - Leverage: %dx
 - Distribution: %s
+- Per-Level Notional: ~$%.0f (investment × leverage ÷ levels)
 
 ## Decision Rules
 
@@ -250,6 +268,17 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - **Ranging Market** (ideal for grid): Bollinger width < %.1f%%, EMA20/50 distance < %.1f%%, price near middle band
 - **Trending Market** (pause grid): Bollinger width > %.1f%%, EMA20/50 distance > %.1f%%, price breaking bands
 - **High Volatility** (caution): ATR spike, erratic price movement
+
+### Grid Initialization Rules
+When all levels are in empty state, place orders as follows:
+- Levels **below** current price: place_buy_limit (buy on dip)
+- Levels **above** current price: place_sell_limit (sell on rise)
+- Prioritize the 1-2 levels closest to current price
+- If market is trending, hold and observe before placing orders
+
+### Order Quantity Calculation
+Per-level quantity = per-level notional ÷ level price
+Example: $%.0f ÷ $5000 = %.4f
 
 ### Available Actions
 - place_buy_limit: Place buy limit order at specified price
@@ -266,7 +295,7 @@ Output JSON array, each decision contains:
 - symbol: Trading pair
 - action: Action type
 - price: Price (for limit orders)
-- quantity: Quantity
+- quantity: Quantity (calculated as per-level notional ÷ price)
 - level_index: Grid level index
 - order_id: Order ID (for cancel)
 - confidence: Confidence 0-100
@@ -274,12 +303,32 @@ Output JSON array, each decision contains:
 
 Example:
 [
-  {"symbol": "%s", "action": "place_buy_limit", "price": 94000, "quantity": 0.01, "level_index": 2, "confidence": 85, "reasoning": "Level 2 price approaching, place buy order"},
+  {"symbol": "%s", "action": "place_buy_limit", "price": %s, "quantity": %s, "level_index": 2, "confidence": 85, "reasoning": "Level 2 price approaching, place buy order"},
   {"symbol": "%s", "action": "hold", "confidence": 90, "reasoning": "Market ranging, maintain current grid"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution,
+		perLevelNotional,
 		t.RangingBBWidth, t.RangingEMADist, t.TrendingBBWidth, t.TrendingEMADist,
-		config.Symbol, config.Symbol)
+		perLevelNotional, perLevelNotional/5000,
+		config.Symbol, gridExamplePrice(config), gridExampleQty(config),
+		config.Symbol)
+}
+
+// gridExamplePrice returns a realistic example price string based on the asset type.
+func gridExamplePrice(config *store.GridStrategyConfig) string {
+	if IsGoldAsset(config.Symbol) {
+		return "4950"
+	}
+	return "94000"
+}
+
+// gridExampleQty returns a realistic example quantity string based on the asset type.
+func gridExampleQty(config *store.GridStrategyConfig) string {
+	perLevel := config.TotalInvestment * float64(config.Leverage) / float64(config.GridCount)
+	if IsGoldAsset(config.Symbol) {
+		return fmt.Sprintf("%.4f", perLevel/5000)
+	}
+	return fmt.Sprintf("%.4f", perLevel/94000)
 }
 
 // ── Gold-Specific System Prompt Extensions ──────────────────────────────────
