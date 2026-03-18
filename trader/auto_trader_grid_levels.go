@@ -53,6 +53,82 @@ func (at *AutoTrader) calculateATRBounds(price float64, mktData *market.Data, co
 		atr, atrPct, multiplier, at.gridState.LowerPrice, at.gridState.UpperPrice)
 }
 
+// calculateBoxBounds calculates bounds using Donchian channel (box) data.
+// This uses actual historical price range instead of ATR estimation.
+func (at *AutoTrader) calculateBoxBounds(currentPrice float64, config *store.GridStrategyConfig) {
+	box, err := market.GetBoxData(config.Symbol)
+	if err != nil || box == nil {
+		logger.Warnf("[Grid] Box data unavailable for %s: %v, falling back to default bounds", config.Symbol, err)
+		at.calculateDefaultBounds(currentPrice, config)
+		return
+	}
+
+	upper, lower := at.selectBoxPeriod(box, config.BoxBoundsPeriod)
+
+	if upper <= lower || upper <= 0 {
+		logger.Warnf("[Grid] Invalid box bounds (upper=%.2f, lower=%.2f), falling back to default", upper, lower)
+		at.calculateDefaultBounds(currentPrice, config)
+		return
+	}
+
+	at.gridState.UpperPrice = upper
+	at.gridState.LowerPrice = lower
+
+	rangePct := (upper - lower) / box.CurrentPrice * 100
+	logger.Infof("[Grid] Box bounds (%s): $%.2f - $%.2f (%.1f%% range), price=$%.2f",
+		config.BoxBoundsPeriod, lower, upper, rangePct, box.CurrentPrice)
+}
+
+// calculateBoxBoundsLocked is the lock-held version for use in autoAdjustGrid.
+func (at *AutoTrader) calculateBoxBoundsLocked(currentPrice float64, config *store.GridStrategyConfig) {
+	box, err := market.GetBoxData(config.Symbol)
+	if err != nil || box == nil {
+		logger.Warnf("[Grid] Box data unavailable during adjust, using default bounds")
+		at.calculateDefaultBoundsLocked(currentPrice, config)
+		return
+	}
+
+	upper, lower := at.selectBoxPeriod(box, config.BoxBoundsPeriod)
+
+	if upper <= lower || upper <= 0 {
+		at.calculateDefaultBoundsLocked(currentPrice, config)
+		return
+	}
+
+	at.gridState.UpperPrice = upper
+	at.gridState.LowerPrice = lower
+
+	logger.Infof("[Grid] Box bounds (%s, adjust): $%.2f - $%.2f",
+		config.BoxBoundsPeriod, lower, upper)
+}
+
+// selectBoxPeriod extracts upper/lower from the appropriate Donchian period.
+func (at *AutoTrader) selectBoxPeriod(box *market.BoxData, period string) (upper, lower float64) {
+	switch period {
+	case "short":
+		return box.ShortUpper, box.ShortLower
+	case "long":
+		return box.LongUpper, box.LongLower
+	default: // "mid" or empty
+		return box.MidUpper, box.MidLower
+	}
+}
+
+// resolveBoundsMode determines the effective bounds mode with backward compatibility.
+// If BoundsMode is set, use it directly. Otherwise fall back to UseATRBounds logic.
+func resolveBoundsMode(config *store.GridStrategyConfig) string {
+	if config.BoundsMode != "" {
+		return config.BoundsMode
+	}
+	if config.UseATRBounds {
+		return "atr"
+	}
+	if config.UpperPrice > 0 && config.LowerPrice > 0 {
+		return "manual"
+	}
+	return "atr"
+}
+
 // initializeGridLevels creates the grid level structure
 func (at *AutoTrader) initializeGridLevels(currentPrice float64, config *store.GridStrategyConfig) {
 	levels := make([]kernel.GridLevelInfo, config.GridCount)
@@ -219,16 +295,20 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 		}
 	}
 
-	// Grid is skewed if one side has 3x more fills than the other
-	// or if one side is completely empty
+	// Grid is skewed if one side has all fills and the other side is mostly empty.
+	// Use proportion-based threshold to work with any grid size (including 4 levels).
+	totalLevels := len(at.gridState.Levels)
+	emptyThreshold := max(1, totalLevels/3)
+	fillThreshold := max(2, totalLevels/2)
+
 	skewed := false
-	if buyFilled > 0 && sellFilled == 0 && sellEmpty > 5 {
-		skewed = true // All buys filled, no sells
-	} else if sellFilled > 0 && buyFilled == 0 && buyEmpty > 5 {
-		skewed = true // All sells filled, no buys
-	} else if buyFilled >= 3*sellFilled && buyFilled > 5 {
+	if buyFilled > 0 && sellFilled == 0 && sellEmpty >= emptyThreshold {
 		skewed = true
-	} else if sellFilled >= 3*buyFilled && sellFilled > 5 {
+	} else if sellFilled > 0 && buyFilled == 0 && buyEmpty >= emptyThreshold {
+		skewed = true
+	} else if buyFilled >= 3*sellFilled && buyFilled >= fillThreshold {
+		skewed = true
+	} else if sellFilled >= 3*buyFilled && sellFilled >= fillThreshold {
 		skewed = true
 	}
 
@@ -289,10 +369,13 @@ func (at *AutoTrader) autoAdjustGrid() {
 		}
 	}
 
-	// CRITICAL FIX: Recalculate grid bounds centered on current price
-	// Use the same logic as InitializeGrid() - either ATR-based or default percentage
-	if gridConfig.UseATRBounds {
-		// Try to get ATR for bound calculation
+	// Recalculate grid bounds using the same mode as InitializeGrid
+	switch resolveBoundsMode(gridConfig) {
+	case "box":
+		at.calculateBoxBoundsLocked(currentPrice, gridConfig)
+	case "manual":
+		at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
+	default: // "atr"
 		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
 		if err != nil {
 			logger.Warnf("[Grid] Failed to get market data for ATR during adjust: %v, using default bounds", err)
@@ -300,9 +383,6 @@ func (at *AutoTrader) autoAdjustGrid() {
 		} else {
 			at.calculateATRBoundsLocked(currentPrice, mktData, gridConfig)
 		}
-	} else {
-		// Use default bounds calculation (scaled by grid count)
-		at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
 	}
 
 	// Recalculate grid spacing based on new bounds

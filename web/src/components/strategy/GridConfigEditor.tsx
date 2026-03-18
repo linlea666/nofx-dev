@@ -29,6 +29,7 @@ const PRESETS = {
     breakout_pause_pct: 1.0,
     atr_multiplier: 3.5, grid_count: 15, leverage: 3,
     max_drawdown_pct: 8, stop_loss_pct: 2, daily_loss_limit_pct: 5,
+    bounds_mode: 'box' as string, box_bounds_period: 'mid' as string,
   },
 } as const
 
@@ -254,31 +255,42 @@ export function GridConfigEditor({
           </h3>
         </div>
 
-        {/* ATR Toggle */}
+        {/* Bounds Mode Selector */}
         <div className="p-4 rounded-lg mb-4" style={sectionStyle}>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm" style={{ color: '#EAECEF' }}>
-                {ts(gridConfig.useAtrBounds, language)}
-              </label>
-              <p className="text-xs" style={{ color: '#848E9C' }}>
-                {ts(gridConfig.useAtrBoundsDesc, language)}
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.use_atr_bounds}
-                onChange={(e) => updateField('use_atr_bounds', e.target.checked)}
+          <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+            {language === 'zh' ? '边界计算方式' : 'Bounds Calculation'}
+          </label>
+          <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+            {language === 'zh' ? '选择网格上下边界的计算方式' : 'Choose how grid boundaries are calculated'}
+          </p>
+          <div className="flex gap-2">
+            {[
+              { value: 'atr', label: { zh: 'ATR 自动', en: 'ATR Auto' } },
+              { value: 'box', label: { zh: '箱体 (Donchian)', en: 'Box (Donchian)' } },
+              { value: 'manual', label: { zh: '手动设定', en: 'Manual' } },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  updateField('bounds_mode', opt.value)
+                  updateField('use_atr_bounds', opt.value === 'atr')
+                }}
                 disabled={disabled}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
-            </label>
+                className="px-3 py-1.5 rounded text-sm transition-colors"
+                style={{
+                  background: (config.bounds_mode || (config.use_atr_bounds ? 'atr' : 'manual')) === opt.value ? '#F0B90B' : '#2B3139',
+                  color: (config.bounds_mode || (config.use_atr_bounds ? 'atr' : 'manual')) === opt.value ? '#0B0E11' : '#848E9C',
+                  border: '1px solid #2B3139',
+                }}
+              >
+                {ts(opt.label, language)}
+              </button>
+            ))}
           </div>
         </div>
 
-        {config.use_atr_bounds ? (
+        {/* Mode-specific options */}
+        {(config.bounds_mode || (config.use_atr_bounds ? 'atr' : 'manual')) === 'atr' && (
           <div className="p-4 rounded-lg" style={sectionStyle}>
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(gridConfig.atrMultiplier, language)}
@@ -298,7 +310,41 @@ export function GridConfigEditor({
               style={inputStyle}
             />
           </div>
-        ) : (
+        )}
+
+        {(config.bounds_mode || (config.use_atr_bounds ? 'atr' : 'manual')) === 'box' && (
+          <div className="p-4 rounded-lg" style={sectionStyle}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {language === 'zh' ? '箱体周期' : 'Box Period'}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {language === 'zh' ? '使用哪个时间周期的 Donchian 通道作为网格边界' : 'Which Donchian channel period to use as grid boundaries'}
+            </p>
+            <div className="flex gap-2">
+              {[
+                { value: 'short', label: { zh: '短期 (3天)', en: 'Short (3d)' } },
+                { value: 'mid', label: { zh: '中期 (10天)', en: 'Mid (10d)' } },
+                { value: 'long', label: { zh: '长期 (21天)', en: 'Long (21d)' } },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => updateField('box_bounds_period', opt.value)}
+                  disabled={disabled}
+                  className="px-3 py-1.5 rounded text-sm transition-colors"
+                  style={{
+                    background: (config.box_bounds_period || 'mid') === opt.value ? '#F0B90B' : '#2B3139',
+                    color: (config.box_bounds_period || 'mid') === opt.value ? '#0B0E11' : '#848E9C',
+                    border: '1px solid #2B3139',
+                  }}
+                >
+                  {ts(opt.label, language)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(config.bounds_mode || (config.use_atr_bounds ? 'atr' : 'manual')) === 'manual' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-lg" style={sectionStyle}>
               <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>

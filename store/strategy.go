@@ -67,10 +67,14 @@ type GridStrategyConfig struct {
 	UpperPrice float64 `json:"upper_price"`
 	// Lower price boundary (0 = auto-calculate from ATR)
 	LowerPrice float64 `json:"lower_price"`
-	// Use ATR to auto-calculate bounds
+	// Use ATR to auto-calculate bounds (legacy, superseded by BoundsMode)
 	UseATRBounds bool `json:"use_atr_bounds"`
 	// ATR multiplier for bound calculation (default 2.0)
 	ATRMultiplier float64 `json:"atr_multiplier"`
+	// Bounds calculation mode: "atr" (ATR-based), "box" (Donchian channel), "manual" (fixed upper/lower)
+	BoundsMode string `json:"bounds_mode,omitempty"`
+	// Which Donchian period to use for box bounds: "short" (3d), "mid" (10d), "long" (21d)
+	BoxBoundsPeriod string `json:"box_bounds_period,omitempty"`
 	// Position distribution: "uniform" | "gaussian" | "pyramid"
 	Distribution string `json:"distribution"`
 	// Maximum drawdown percentage before emergency exit

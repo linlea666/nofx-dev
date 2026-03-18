@@ -27,6 +27,8 @@ type GridConfigModel struct {
 	LowerPrice      float64 `json:"lower_price"`
 	UseATRBounds    bool    `json:"use_atr_bounds" gorm:"default:true"`
 	ATRMultiplier   float64 `json:"atr_multiplier" gorm:"default:2.0"`
+	BoundsMode      string  `json:"bounds_mode" gorm:"default:atr"`       // "atr" | "box" | "manual"
+	BoxBoundsPeriod string  `json:"box_bounds_period" gorm:"default:mid"` // "short" | "mid" | "long"
 	Distribution    string  `json:"distribution" gorm:"default:gaussian"`
 
 	MaxDrawdownPct     float64 `json:"max_drawdown_pct" gorm:"default:15.0"`

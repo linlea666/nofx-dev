@@ -302,9 +302,14 @@ func (at *AutoTrader) InitializeGrid() error {
 		return fmt.Errorf("failed to get market price: %w", err)
 	}
 
-	// Calculate grid bounds
-	if gridConfig.UseATRBounds {
-		// Get ATR for bound calculation
+	// Calculate grid bounds based on configured mode
+	switch resolveBoundsMode(gridConfig) {
+	case "box":
+		at.calculateBoxBounds(price, gridConfig)
+	case "manual":
+		at.gridState.UpperPrice = gridConfig.UpperPrice
+		at.gridState.LowerPrice = gridConfig.LowerPrice
+	default: // "atr"
 		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
 		if err != nil {
 			logger.Warnf("Failed to get market data for ATR: %v, using default bounds", err)
@@ -312,10 +317,6 @@ func (at *AutoTrader) InitializeGrid() error {
 		} else {
 			at.calculateATRBounds(price, mktData, gridConfig)
 		}
-	} else {
-		// Use manual bounds
-		at.gridState.UpperPrice = gridConfig.UpperPrice
-		at.gridState.LowerPrice = gridConfig.LowerPrice
 	}
 
 	// Calculate grid spacing
@@ -340,8 +341,9 @@ func (at *AutoTrader) InitializeGrid() error {
 	// Log full configuration summary for traceability
 	rt := ResolveRegimeThresholds(gridConfig)
 	logger.Infof("[Grid] === Config Summary ===")
-	logger.Infof("[Grid]   Symbol: %s | Investment: $%.2f | Leverage: %dx | ATR mult: %.1f",
-		gridConfig.Symbol, gridConfig.TotalInvestment, gridConfig.Leverage, gridConfig.ATRMultiplier)
+	boundsMode := resolveBoundsMode(gridConfig)
+	logger.Infof("[Grid]   Symbol: %s | Investment: $%.2f | Leverage: %dx | Bounds: %s | ATR mult: %.1f",
+		gridConfig.Symbol, gridConfig.TotalInvestment, gridConfig.Leverage, boundsMode, gridConfig.ATRMultiplier)
 	logger.Infof("[Grid]   Regime thresholds (BB%%): narrow<%.1f, standard<%.1f, wide<%.1f",
 		rt.NarrowBBWidth, rt.StandardBBWidth, rt.WideBBWidth)
 	logger.Infof("[Grid]   Regime thresholds (ATR%%): narrow<%.1f, standard<%.1f, wide<%.1f",
@@ -516,6 +518,11 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 			logger.Infof("📊 [Grid] Macro data loaded: DXY=%.2f VIX=%.2f US10Y=%.3f%% (errors: %d)",
 				macroData.DXY.Value, macroData.VIX.Value, macroData.US10YYield.Value, len(macroData.Errors))
 		}
+	}
+
+	// Add box data for AI context (Donchian channels)
+	if box, bErr := market.GetBoxData(gridConfig.Symbol); bErr == nil && box != nil {
+		ctx.BoxData = box
 	}
 
 	// Add grid state

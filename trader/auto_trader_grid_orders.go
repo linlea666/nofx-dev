@@ -5,6 +5,7 @@ import (
 	"math"
 	"nofx/kernel"
 	"nofx/logger"
+	"nofx/market"
 	"strings"
 	"time"
 )
@@ -234,23 +235,38 @@ func (at *AutoTrader) resumeGrid() error {
 	return nil
 }
 
-// adjustGrid adjusts grid parameters
+// adjustGrid adjusts grid parameters: recalculates bounds and reinitializes levels.
 func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
-	// Cancel existing orders first
 	at.cancelAllGridOrders()
 
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Get current price
 	price, err := at.trader.GetMarketPrice(gridConfig.Symbol)
 	if err != nil {
 		return fmt.Errorf("failed to get market price: %w", err)
 	}
 
-	// Reinitialize grid levels
+	// Recalculate bounds (same logic as InitializeGrid)
+	switch resolveBoundsMode(gridConfig) {
+	case "box":
+		at.calculateBoxBounds(price, gridConfig)
+	case "manual":
+		at.gridState.UpperPrice = gridConfig.UpperPrice
+		at.gridState.LowerPrice = gridConfig.LowerPrice
+	default:
+		mktData, mErr := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
+		if mErr != nil {
+			at.calculateDefaultBounds(price, gridConfig)
+		} else {
+			at.calculateATRBounds(price, mktData, gridConfig)
+		}
+	}
+
+	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
 	at.initializeGridLevels(price, gridConfig)
 
-	logger.Infof("[Grid] Adjusted grid bounds around price $%.2f", price)
+	logger.Infof("[Grid] Adjusted: $%.2f - $%.2f, spacing $%.2f, price $%.2f",
+		at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing, price)
 	return nil
 }
 

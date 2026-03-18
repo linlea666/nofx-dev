@@ -67,10 +67,14 @@ export interface GridStrategyConfig {
   upper_price: number;
   // Lower price boundary (0 = auto-calculate from ATR)
   lower_price: number;
-  // Use ATR to auto-calculate bounds
+  // Use ATR to auto-calculate bounds (legacy, superseded by bounds_mode)
   use_atr_bounds: boolean;
   // ATR multiplier for bound calculation (default 2.0)
   atr_multiplier: number;
+  // Bounds calculation mode: "atr" | "box" | "manual"
+  bounds_mode?: string;
+  // Which Donchian period to use for box bounds: "short" | "mid" | "long"
+  box_bounds_period?: string;
   // Position distribution: "uniform" | "gaussian" | "pyramid"
   distribution: 'uniform' | 'gaussian' | 'pyramid';
   // Maximum drawdown percentage before emergency exit
