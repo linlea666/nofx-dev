@@ -10,6 +10,8 @@ type Data struct {
 	PriceChange4h     float64 // 4-hour price change percentage
 	CurrentEMA20      float64
 	CurrentMACD       float64
+	CurrentMACDSignal float64
+	CurrentMACDHist   float64
 	CurrentRSI7       float64
 	OpenInterest      *OIData
 	FundingRate       float64

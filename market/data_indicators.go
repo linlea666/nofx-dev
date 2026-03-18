@@ -24,18 +24,76 @@ func calculateEMA(klines []Kline, period int) float64 {
 	return ema
 }
 
-// calculateMACD calculates MACD
+// calculateMACD calculates MACD line only (EMA12 - EMA26).
 func calculateMACD(klines []Kline) float64 {
 	if len(klines) < 26 {
 		return 0
 	}
+	return calculateEMA(klines, 12) - calculateEMA(klines, 26)
+}
 
-	// Calculate 12-period and 26-period EMA
-	ema12 := calculateEMA(klines, 12)
-	ema26 := calculateEMA(klines, 26)
+// MACDResult holds MACD line, Signal line, and Histogram.
+type MACDResult struct {
+	MACD      float64
+	Signal    float64
+	Histogram float64
+}
 
-	// MACD = EMA12 - EMA26
-	return ema12 - ema26
+// calculateMACDFull computes MACD line, 9-period Signal, and Histogram.
+// Requires at least 26+9=35 klines for a meaningful signal value.
+func calculateMACDFull(klines []Kline) MACDResult {
+	if len(klines) < 26 {
+		return MACDResult{}
+	}
+
+	// Build MACD series using incremental EMA
+	multiplier12 := 2.0 / 13.0
+	multiplier26 := 2.0 / 27.0
+
+	var sum12, sum26 float64
+	for i := 0; i < 12; i++ {
+		sum12 += klines[i].Close
+	}
+	ema12 := sum12 / 12.0
+	for i := 12; i < 26; i++ {
+		ema12 = (klines[i].Close-ema12)*multiplier12 + ema12
+	}
+
+	for i := 0; i < 26; i++ {
+		sum26 += klines[i].Close
+	}
+	ema26 := sum26 / 26.0
+
+	macdSeries := make([]float64, 0, len(klines)-25)
+	macdSeries = append(macdSeries, ema12-ema26)
+
+	for i := 26; i < len(klines); i++ {
+		ema12 = (klines[i].Close-ema12)*multiplier12 + ema12
+		ema26 = (klines[i].Close-ema26)*multiplier26 + ema26
+		macdSeries = append(macdSeries, ema12-ema26)
+	}
+
+	macdLine := macdSeries[len(macdSeries)-1]
+
+	// Signal = 9-period EMA of MACD series
+	signalLine := 0.0
+	if len(macdSeries) >= 9 {
+		var sumSignal float64
+		for i := 0; i < 9; i++ {
+			sumSignal += macdSeries[i]
+		}
+		signalLine = sumSignal / 9.0
+		multiplier9 := 2.0 / 10.0
+		for i := 9; i < len(macdSeries); i++ {
+			signalLine = (macdSeries[i]-signalLine)*multiplier9 + signalLine
+		}
+	}
+
+	return MACDResult{
+		MACD:      macdLine,
+		Signal:    signalLine,
+		Histogram: macdLine - signalLine,
+	}
 }
 
 // calculateRSI calculates RSI

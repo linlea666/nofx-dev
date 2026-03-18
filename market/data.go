@@ -612,11 +612,15 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data,
 	current := primary[len(primary)-1]
 	currentPrice := current.Close
 
+	macdResult := calculateMACDFull(primary)
+
 	data := &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
 		CurrentEMA20:      calculateEMA(primary, 20),
-		CurrentMACD:       calculateMACD(primary),
+		CurrentMACD:       macdResult.MACD,
+		CurrentMACDSignal: macdResult.Signal,
+		CurrentMACDHist:   macdResult.Histogram,
 		CurrentRSI7:       calculateRSI(primary, 7),
 		PriceChange1h:     priceChangeFromSeries(primary, time.Hour),
 		PriceChange4h:     priceChangeFromSeries(primary, 4*time.Hour),

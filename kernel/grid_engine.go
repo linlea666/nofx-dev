@@ -809,6 +809,8 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 
 	ctx.EMA20 = mktData.CurrentEMA20
 	ctx.MACD = mktData.CurrentMACD
+	ctx.MACDSignal = mktData.CurrentMACDSignal
+	ctx.MACDHistogram = mktData.CurrentMACDHist
 
 	// Fallback: extract EMA20 from TimeframeData["5m"] when CurrentEMA20 is zero
 	if ctx.EMA20 == 0 && mktData.TimeframeData != nil {
