@@ -25,7 +25,7 @@ const PRESETS = {
     narrow_bb_width: 0.8, standard_bb_width: 1.5, wide_bb_width: 2.5,
     narrow_atr_pct: 0.3, standard_atr_pct: 0.7, wide_atr_pct: 1.2,
     ranging_bb_width: 1.5, trending_bb_width: 2.5,
-    ranging_ema_dist: 0.5, trending_ema_dist: 1.0,
+    ranging_ema_dist: 1.0, trending_ema_dist: 2.0,
     breakout_pause_pct: 1.0,
     atr_multiplier: 3.5, grid_count: 15, leverage: 3,
     max_drawdown_pct: 8, stop_loss_pct: 2, daily_loss_limit_pct: 5,
