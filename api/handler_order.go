@@ -117,7 +117,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -135,7 +135,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -165,7 +165,7 @@ func (s *Server) handlePositions(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -188,7 +188,7 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) handleTrades(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -295,7 +295,7 @@ func (s *Server) handleOrders(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -347,7 +347,7 @@ func (s *Server) handleOrderFills(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -377,7 +377,7 @@ func (s *Server) handleOpenOrders(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 

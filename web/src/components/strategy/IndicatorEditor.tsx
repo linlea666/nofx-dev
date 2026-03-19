@@ -107,8 +107,54 @@ export function IndicatorEditor({
   const hasNofxosEnabled = config.enable_quant_data || config.enable_oi_ranking || config.enable_netflow_ranking || config.enable_price_ranking
   const hasApiKey = !!config.nofxos_api_key
 
+  const applyRecommendedPreset = () => {
+    if (disabled) return
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        primary_timeframe: '5m',
+        selected_timeframes: ['5m', '15m', '1h', '4h'],
+        enable_multi_timeframe: true,
+      },
+      enable_raw_klines: true,
+      enable_ema: true, ema_periods: [20, 50],
+      enable_rsi: true, rsi_periods: [7, 14],
+      enable_atr: true, atr_periods: [14],
+      enable_macd: false,
+      enable_boll: false,
+      enable_volume: true,
+      enable_oi: true,
+      enable_funding_rate: true,
+      enable_quant_data: true,
+      enable_oi_ranking: false,
+      enable_netflow_ranking: false,
+      enable_price_ranking: false,
+      enable_macro_data: true,
+    })
+  }
+
   return (
     <div className="space-y-5">
+      {/* Recommended Preset */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs" style={{ color: '#848E9C' }}>{ts(indicator.macroDataDesc, language)}</span>
+        <button
+          onClick={applyRecommendedPreset}
+          disabled={disabled}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[1.02]"
+          style={{
+            background: 'linear-gradient(135deg, rgba(14, 203, 129, 0.15) 0%, rgba(14, 203, 129, 0.08) 100%)',
+            border: '1px solid rgba(14, 203, 129, 0.4)',
+            color: '#0ECB81',
+            opacity: disabled ? 0.5 : 1,
+          }}
+        >
+          <Zap className="w-3.5 h-3.5" />
+          {ts(indicator.recommendedPreset, language)}
+        </button>
+      </div>
+
       {/* ============================================ */}
       {/* NofxOS Data Provider - Top Configuration    */}
       {/* ============================================ */}

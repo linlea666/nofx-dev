@@ -266,6 +266,7 @@ export const indicator = {
   macroDataDesc: { zh: '全球宏观市场数据，辅助 AI 跨市场分析', en: 'Global macro market data for cross-market AI analysis', es: 'Datos macro globales' },
   macroDataTitle: { zh: '宏观市场数据', en: 'Macro Market Data', es: 'Datos Macro' },
   macroDataNote: { zh: '金/油/银/铜/CME BTC期货/标普500/纳指/VIX/美债/美元指数/日元 — 含日内OHLC', en: 'Gold/Oil/Silver/Copper/CME BTC/S&P500/NASDAQ/VIX/US10Y/DXY/USDJPY — with intraday OHLC', es: 'Oro/Petróleo/Plata/Cobre/BTC/SP500/NASDAQ/VIX/US10Y/DXY/USDJPY' },
+  recommendedPreset: { zh: '推荐配置', en: 'Recommended', es: 'Recomendado' },
   nofxosTitle: { zh: 'NofxOS 量化数据源', en: 'NofxOS Data Provider', es: 'Proveedor NofxOS' },
   nofxosDesc: { zh: '专业加密货币量化数据服务', en: 'Professional crypto quant data service', es: 'Servicio crypto quant' },
   nofxosFeatures: { zh: 'AI500 · OI排行 · 资金流向 · 涨跌榜', en: 'AI500 · OI Ranking · Fund Flow · Price Ranking', es: 'AI500 · OI · NetFlow · Ranking' },

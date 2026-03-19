@@ -36,6 +36,18 @@ func SafeNotFound(c *gin.Context, resource string) {
 	c.JSON(http.StatusNotFound, gin.H{"error": resource + " not found"})
 }
 
+// TraderNotFoundOrLoadError checks for a trader load error before returning 404.
+// When a trader exists in DB but failed to load into memory (e.g. bad exchange credentials),
+// this returns 503 with the specific error so the user can diagnose the configuration issue.
+func (s *Server) TraderNotFoundOrLoadError(c *gin.Context, traderID string) {
+	if loadErr := s.traderManager.GetLoadError(traderID); loadErr != nil {
+		errMsg := SanitizeError(loadErr, "Trader failed to load")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Trader load failed: " + errMsg})
+		return
+	}
+	SafeNotFound(c, "Trader")
+}
+
 // SafeUnauthorized returns unauthorized error
 func SafeUnauthorized(c *gin.Context) {
 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})

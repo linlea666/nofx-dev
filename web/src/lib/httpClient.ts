@@ -138,20 +138,31 @@ export class HttpClient {
       throw new Error('Permission denied')
     }
 
-    // Handle 404 Not Found - system error
+    // Extract server error message if available
+    const serverMsg = (error.response?.data as Record<string, unknown>)?.error as string | undefined
+
+    // Handle 404 Not Found
     if (status === 404) {
-      toast.error('API Not Found', {
-        description: 'The requested endpoint does not exist (404)',
+      toast.error(serverMsg ? 'Not Found' : 'API Not Found', {
+        description: serverMsg || 'The requested endpoint does not exist (404)',
       })
-      throw new Error('API not found')
+      throw new Error(serverMsg || 'API not found')
+    }
+
+    // Handle 503 Service Unavailable (e.g. trader load failure)
+    if (status === 503) {
+      toast.error('Service Unavailable', {
+        description: serverMsg || 'Service temporarily unavailable',
+      })
+      throw new Error(serverMsg || 'Service unavailable')
     }
 
     // Handle 500+ Server Error - system error
     if (status >= 500) {
       toast.error('Server Error', {
-        description: 'Please try again later or contact support',
+        description: serverMsg || 'Please try again later or contact support',
       })
-      throw new Error('Server error')
+      throw new Error(serverMsg || 'Server error')
     }
 
     // 4xx errors (except 401/403/404) are business logic errors

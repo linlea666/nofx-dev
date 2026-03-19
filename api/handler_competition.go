@@ -23,7 +23,7 @@ func (s *Server) handleDecisions(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -47,7 +47,7 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (s *Server) handleStatistics(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.TraderNotFoundOrLoadError(c, traderID)
 		return
 	}
 
