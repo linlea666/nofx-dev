@@ -1,7 +1,6 @@
 package macro
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -305,17 +304,11 @@ func fetchEMQuote(inst *emInstrument) *CommodityQuote {
 }
 
 // ============================================================================
-// East Money FastNews API (market-moving headlines for sentiment analysis)
+// BlockBeats News API (crypto-native + international macro headlines)
 // ============================================================================
 
 func fetchNews(data *MacroData, addError func(string)) {
-	reqBody := []byte(`{"biz":"wap_ad_724","timestamp":0,"client":"wap","trace":"wap_ad_724","h24ColumnCode":"102","pageSize":5,"order":2,"titleColor":"3"}`)
-
-	resp, err := httpClient.Post(
-		"https://np-waplist.eastmoney.com/comm/wap/getFastNews",
-		"application/json",
-		bytes.NewReader(reqBody),
-	)
+	resp, err := httpClient.Get("https://api.blockbeats.cn/v2/newsflash/list?page=1&limit=8&ios=-2&end_time=&detective=-2")
 	if err != nil {
 		addError(fmt.Sprintf("news: %v", err))
 		return
@@ -336,30 +329,30 @@ func fetchNews(data *MacroData, addError func(string)) {
 	var result struct {
 		Code int `json:"code"`
 		Data struct {
-			Data []struct {
-				Title     string `json:"title"`
-				MediaName string `json:"mediaName"`
-				ShowTime  string `json:"showTime"`
-			} `json:"data"`
+			List []struct {
+				Title   string `json:"title"`
+				AddTime int64  `json:"add_time"`
+			} `json:"list"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		addError(fmt.Sprintf("news parse: %v", err))
 		return
 	}
-	if result.Code != 1 {
+	if result.Code != 0 {
 		addError(fmt.Sprintf("news: code=%d", result.Code))
 		return
 	}
 
-	for _, item := range result.Data.Data {
+	for _, item := range result.Data.List {
 		if item.Title == "" {
 			continue
 		}
+		timeStr := time.Unix(item.AddTime, 0).UTC().Format("01-02 15:04")
 		data.News = append(data.News, NewsItem{
 			Title:  item.Title,
-			Source: item.MediaName,
-			Time:   item.ShowTime,
+			Source: "BlockBeats",
+			Time:   timeStr,
 		})
 	}
 }
@@ -711,11 +704,7 @@ func (d *MacroData) FormatForPromptZh() string {
 	if len(d.News) > 0 {
 		sb.WriteString("\n### 消息面（近期重要新闻）\n")
 		for _, n := range d.News {
-			timeStr := n.Time
-			if len(timeStr) > 11 {
-				timeStr = timeStr[11:]
-			}
-			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", timeStr, n.Title, n.Source))
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", n.Time, n.Title))
 		}
 	}
 
@@ -790,11 +779,7 @@ func (d *MacroData) FormatForPromptEn() string {
 	if len(d.News) > 0 {
 		sb.WriteString("\n### Market News (Recent Headlines)\n")
 		for _, n := range d.News {
-			timeStr := n.Time
-			if len(timeStr) > 11 {
-				timeStr = timeStr[11:]
-			}
-			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", timeStr, n.Title, n.Source))
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", n.Time, n.Title))
 		}
 	}
 
