@@ -9,13 +9,21 @@ import (
 // Decision Validation
 // ============================================================================
 
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minPositionSize float64) error {
+// validateDecisions validates all decisions, filtering out invalid ones instead
+// of rejecting the entire batch. Returns the filtered valid decisions and any
+// validation errors for logging.
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minPositionSize float64) ([]Decision, []string) {
+	var valid []Decision
+	var warnings []string
 	for i := range decisions {
 		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minPositionSize); err != nil {
-			return fmt.Errorf("decision #%d validation failed: %w", i+1, err)
+			warnings = append(warnings, fmt.Sprintf("decision #%d (%s %s) skipped: %v", i+1, decisions[i].Symbol, decisions[i].Action, err))
+			logger.Warnf("⚠️ Decision #%d (%s %s) validation failed, skipping: %v", i+1, decisions[i].Symbol, decisions[i].Action, err)
+		} else {
+			valid = append(valid, decisions[i])
 		}
 	}
-	return nil
+	return valid, warnings
 }
 
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minPositionSize float64) error {

@@ -212,16 +212,24 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minPositionSize); err != nil {
+	validDecisions, warnings := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minPositionSize)
+
+	if len(warnings) > 0 {
+		for _, w := range warnings {
+			logger.Warnf("⚠️ [Validation] %s", w)
+		}
+	}
+
+	if len(validDecisions) == 0 && len(decisions) > 0 {
 		return &FullDecision{
 			CoTTrace:  cotTrace,
-			Decisions: decisions,
-		}, fmt.Errorf("decision validation failed: %w", err)
+			Decisions: []Decision{},
+		}, fmt.Errorf("all %d decisions failed validation: %s", len(decisions), strings.Join(warnings, "; "))
 	}
 
 	return &FullDecision{
 		CoTTrace:  cotTrace,
-		Decisions: decisions,
+		Decisions: validDecisions,
 	}, nil
 }
 
