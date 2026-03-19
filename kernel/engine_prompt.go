@@ -498,19 +498,28 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		nofxosLang = nofxos.LangChinese
 	}
 
-	// OI Ranking data (market-wide open interest changes)
-	if ctx.OIRankingData != nil {
-		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang))
-	}
+	// Market-wide ranking data (for sentiment analysis ONLY)
+	hasRanking := ctx.OIRankingData != nil || ctx.NetFlowRankingData != nil || ctx.PriceRankingData != nil
+	if hasRanking {
+		if e.GetLanguage() == LangChinese {
+			sb.WriteString("## ⚠️ 全市场排行数据（仅供判断市场情绪，不可据此开仓）\n\n")
+			sb.WriteString("以下排行数据来自全市场，包含不在你候选列表中的币种。\n")
+			sb.WriteString("**严格规则：你只能对上方 Candidate Coins / Current Positions 中出现的币种做出开仓决策。排行中的其他币种仅用于辅助判断市场整体方向和情绪。**\n\n")
+		} else {
+			sb.WriteString("## ⚠️ Market-Wide Rankings (Sentiment Reference ONLY — Do NOT Trade)\n\n")
+			sb.WriteString("The rankings below cover the ENTIRE market and include coins NOT in your candidate list.\n")
+			sb.WriteString("**STRICT RULE: You may ONLY open positions on coins listed in Candidate Coins / Current Positions above. Use ranking data solely to gauge overall market direction and sentiment.**\n\n")
+		}
 
-	// NetFlow Ranking data (market-wide fund flow)
-	if ctx.NetFlowRankingData != nil {
-		sb.WriteString(nofxos.FormatNetFlowRankingForAI(ctx.NetFlowRankingData, nofxosLang))
-	}
-
-	// Price Ranking data (market-wide gainers/losers)
-	if ctx.PriceRankingData != nil {
-		sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang))
+		if ctx.OIRankingData != nil {
+			sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang))
+		}
+		if ctx.NetFlowRankingData != nil {
+			sb.WriteString(nofxos.FormatNetFlowRankingForAI(ctx.NetFlowRankingData, nofxosLang))
+		}
+		if ctx.PriceRankingData != nil {
+			sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang))
+		}
 	}
 
 	sb.WriteString("---\n\n")
@@ -626,21 +635,7 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 
 	// Clearly label the coin symbol
 	sb.WriteString(fmt.Sprintf("=== %s Market Data ===\n\n", data.Symbol))
-	sb.WriteString(fmt.Sprintf("current_price = %.4f", data.CurrentPrice))
-
-	if indicators.EnableEMA {
-		sb.WriteString(fmt.Sprintf(", current_ema20 = %.3f", data.CurrentEMA20))
-	}
-
-	if indicators.EnableMACD {
-		sb.WriteString(fmt.Sprintf(", current_macd = %.3f", data.CurrentMACD))
-	}
-
-	if indicators.EnableRSI {
-		sb.WriteString(fmt.Sprintf(", current_rsi7 = %.3f", data.CurrentRSI7))
-	}
-
-	sb.WriteString("\n\n")
+	sb.WriteString(fmt.Sprintf("current_price = %.4f\n\n", data.CurrentPrice))
 
 	if indicators.EnableOI || indicators.EnableFundingRate {
 		sb.WriteString(fmt.Sprintf("Additional data for %s:\n\n", data.Symbol))
@@ -660,7 +655,7 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		for _, tf := range timeframeOrder {
 			if tfData, ok := data.TimeframeData[tf]; ok {
 				sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
-				e.formatTimeframeSeriesData(&sb, tfData, indicators)
+				e.formatTimeframeSeriesData(&sb, tfData, indicators, tf)
 			}
 		}
 	} else {
@@ -730,14 +725,30 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	return sb.String()
 }
 
-func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig) {
+func klineDisplayLimit(tf string) int {
+	switch tf {
+	case "1m", "3m", "5m":
+		return 15
+	case "15m", "30m":
+		return 20
+	default:
+		return 30
+	}
+}
+
+func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig, tf string) {
 	if len(data.Klines) > 0 {
+		klines := data.Klines
+		limit := klineDisplayLimit(tf)
+		if len(klines) > limit {
+			klines = klines[len(klines)-limit:]
+		}
 		sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
-		for i, k := range data.Klines {
+		for i, k := range klines {
 			t := time.Unix(k.Time/1000, 0).UTC()
 			timeStr := t.Format("01-02 15:04")
 			marker := ""
-			if i == len(data.Klines)-1 {
+			if i == len(klines)-1 {
 				marker = "  <- current"
 			}
 			sb.WriteString(fmt.Sprintf("%-14s %-9.4f %-9.4f %-9.4f %-9.4f %-12.2f%s\n",

@@ -186,7 +186,7 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 		codes[i] = inst.code
 	}
 
-	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
+	url := "http://w.sinajs.cn/?list=" + strings.Join(codes, ",")
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		addError(fmt.Sprintf("sina futures: %v", err))
@@ -207,6 +207,11 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		addError(fmt.Sprintf("sina futures: HTTP %d", resp.StatusCode))
+		return
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
