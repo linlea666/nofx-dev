@@ -1,4 +1,4 @@
-import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key, Globe } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key, Globe, Flame } from 'lucide-react'
 import type { IndicatorConfig } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 
@@ -134,25 +134,68 @@ export function IndicatorEditor({
     })
   }
 
+  const applyAggressivePreset = () => {
+    if (disabled) return
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        primary_timeframe: '5m',
+        selected_timeframes: ['5m', '15m', '1h', '4h'],
+        enable_multi_timeframe: true,
+      },
+      enable_raw_klines: true,
+      enable_ema: true, ema_periods: [20, 50],
+      enable_rsi: true, rsi_periods: [7, 14],
+      enable_atr: true, atr_periods: [14],
+      enable_macd: true,
+      enable_boll: true, boll_periods: [20],
+      enable_volume: true,
+      enable_oi: true,
+      enable_funding_rate: true,
+      enable_quant_data: true,
+      enable_oi_ranking: true,
+      enable_netflow_ranking: true,
+      enable_price_ranking: true,
+      enable_macro_data: true,
+    })
+  }
+
   return (
     <div className="space-y-5">
-      {/* Recommended Preset */}
+      {/* Preset Buttons */}
       <div className="flex items-center justify-between">
         <span className="text-xs" style={{ color: '#848E9C' }}>{ts(indicator.macroDataDesc, language)}</span>
-        <button
-          onClick={applyRecommendedPreset}
-          disabled={disabled}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[1.02]"
-          style={{
-            background: 'linear-gradient(135deg, rgba(14, 203, 129, 0.15) 0%, rgba(14, 203, 129, 0.08) 100%)',
-            border: '1px solid rgba(14, 203, 129, 0.4)',
-            color: '#0ECB81',
-            opacity: disabled ? 0.5 : 1,
-          }}
-        >
-          <Zap className="w-3.5 h-3.5" />
-          {ts(indicator.recommendedPreset, language)}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={applyRecommendedPreset}
+            disabled={disabled}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[1.02]"
+            style={{
+              background: 'linear-gradient(135deg, rgba(14, 203, 129, 0.15) 0%, rgba(14, 203, 129, 0.08) 100%)',
+              border: '1px solid rgba(14, 203, 129, 0.4)',
+              color: '#0ECB81',
+              opacity: disabled ? 0.5 : 1,
+            }}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            {ts(indicator.recommendedPreset, language)}
+          </button>
+          <button
+            onClick={applyAggressivePreset}
+            disabled={disabled}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[1.02]"
+            style={{
+              background: 'linear-gradient(135deg, rgba(234, 57, 67, 0.18) 0%, rgba(255, 140, 0, 0.10) 100%)',
+              border: '1px solid rgba(234, 57, 67, 0.45)',
+              color: '#F6465D',
+              opacity: disabled ? 0.5 : 1,
+            }}
+          >
+            <Flame className="w-3.5 h-3.5" />
+            {ts(indicator.aggressivePreset, language)}
+          </button>
+        </div>
       </div>
 
       {/* ============================================ */}

@@ -92,27 +92,42 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
 	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n", riskControl.MinConfidence))
+	minConf := riskControl.MinConfidence
+	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n", minConf))
 	if lang == LangChinese {
 		sb.WriteString("  置信度评分指南:\n")
 		sb.WriteString("  90+: 多时间框架趋势一致 + 宏观面利好 + 量能/OI确认\n")
 		sb.WriteString("  80-89: ≥2个时间框架技术信号清晰 + 宏观面中性\n")
-		sb.WriteString("  75-79: 单时间框架信号 + 存在一个矛盾因素\n")
-		sb.WriteString(fmt.Sprintf("  <%d: 不开仓 — 等待更好的机会\n\n", riskControl.MinConfidence))
+		if minConf < 75 {
+			sb.WriteString("  70-79: 单时间框架信号 + 部分矛盾因素\n")
+			sb.WriteString(fmt.Sprintf("  %d-69: 动量信号明确但缺乏多框架确认 — 轻仓试探\n", minConf))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %d-79: 单时间框架信号 + 存在一个矛盾因素\n", minConf))
+		}
+		sb.WriteString(fmt.Sprintf("  <%d: 不开仓 — 等待更好的机会\n\n", minConf))
 	} else {
 		sb.WriteString("  Confidence scoring guide:\n")
 		sb.WriteString("  90+: Multi-timeframe trend alignment + macro favorable + volume/OI confirmation\n")
 		sb.WriteString("  80-89: Clear technical signal on ≥2 timeframes + neutral macro\n")
-		sb.WriteString("  75-79: Single timeframe signal with one conflicting factor\n")
-		sb.WriteString(fmt.Sprintf("  <%d: Do NOT open — wait for better setup\n\n", riskControl.MinConfidence))
+		if minConf < 75 {
+			sb.WriteString("  70-79: Single timeframe signal with partial conflicting factors\n")
+			sb.WriteString(fmt.Sprintf("  %d-69: Clear momentum signal but lacks multi-timeframe confirmation — light position\n", minConf))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %d-79: Single timeframe signal with one conflicting factor\n", minConf))
+		}
+		sb.WriteString(fmt.Sprintf("  <%d: Do NOT open — wait for better setup\n\n", minConf))
 	}
 
 	// Position sizing guidance
 	sb.WriteString("## Position Sizing Guidance\n")
 	sb.WriteString("Calculate `position_size_usd` based on your confidence and the Position Value Limits above:\n")
 	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
-	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
-	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
+	if minConf < 75 {
+		sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
+		sb.WriteString(fmt.Sprintf("- Low confidence (%d-69): Use 30-50%% of max position value limit (light probe)\n", minConf))
+	} else {
+		sb.WriteString(fmt.Sprintf("- Medium confidence (%d-84): Use 50-80%% of max position value limit\n", minConf))
+	}
 	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, max is %.0f USDT\n",
 		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")

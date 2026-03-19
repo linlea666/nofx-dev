@@ -209,6 +209,8 @@ export const promptSections = {
   resetToDefault: { zh: '重置为默认', en: 'Reset to Default', es: 'Restablecer' },
   chars: { zh: '字符', en: 'chars', es: 'caracteres' },
   modified: { zh: '已修改', en: 'Modified', es: 'Modificado' },
+  applyAggressivePreset: { zh: '应用激进预设', en: 'Apply Aggressive Preset', es: 'Aplicar Preset Agresivo' },
+  aggressivePresetApplied: { zh: '激进预设已应用 — 趋势猎手模式', en: 'Aggressive preset applied — Trend Hunter mode', es: 'Preset agresivo aplicado' },
 };
 
 // ============================================================================
@@ -267,6 +269,8 @@ export const indicator = {
   macroDataTitle: { zh: '宏观市场数据', en: 'Macro Market Data', es: 'Datos Macro' },
   macroDataNote: { zh: '金/油/银/铜/CME BTC期货/标普500/纳指/VIX/美债/美元指数/日元 — 含日内OHLC', en: 'Gold/Oil/Silver/Copper/CME BTC/S&P500/NASDAQ/VIX/US10Y/DXY/USDJPY — with intraday OHLC', es: 'Oro/Petróleo/Plata/Cobre/BTC/SP500/NASDAQ/VIX/US10Y/DXY/USDJPY' },
   recommendedPreset: { zh: '推荐配置', en: 'Recommended', es: 'Recomendado' },
+  aggressivePreset: { zh: '🔥 激进预设（趋势猎手）', en: '🔥 Aggressive (Trend Hunter)', es: '🔥 Agresivo' },
+  aggressivePresetDesc: { zh: '凉兮风格：一小搏大，小亏大赚，趋势滚单', en: 'Liangxi style: small bets big wins, trend rolling', es: 'Estilo agresivo' },
   nofxosTitle: { zh: 'NofxOS 量化数据源', en: 'NofxOS Data Provider', es: 'Proveedor NofxOS' },
   nofxosDesc: { zh: '专业加密货币量化数据服务', en: 'Professional crypto quant data service', es: 'Servicio crypto quant' },
   nofxosFeatures: { zh: 'AI500 · OI排行 · 资金流向 · 涨跌榜', en: 'AI500 · OI Ranking · Fund Flow · Price Ranking', es: 'AI500 · OI · NetFlow · Ranking' },
