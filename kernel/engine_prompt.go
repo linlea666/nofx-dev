@@ -174,6 +174,67 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
 	}
 
+	// 5.5 Trade Quality Control (anti-whipsaw, entry quality, loss pattern awareness)
+	if lang == LangChinese {
+		sb.WriteString("# 🛡️ 交易质量控制（防打脸机制）\n\n")
+
+		sb.WriteString("## 入场位置要求\n")
+		sb.WriteString("仅凭指标信号（如 RSI 超卖）不构成开仓理由，还必须确认价格位置：\n")
+		sb.WriteString("- 做多：价格须在关键支撑附近（布林下轨、EMA 支撑、近期摆动低点）\n")
+		sb.WriteString("- 做空：价格须在关键阻力附近（布林上轨、EMA 阻力、近期摆动高点）\n")
+		sb.WriteString("- 价格在布林中轨附近 = 无人区，除非有极强趋势信号否则不开仓\n")
+		sb.WriteString("- 禁止追涨杀跌：价格已朝你方向大幅运动 → 入场窗口已过，等回踩\n\n")
+
+		sb.WriteString("## 反转冷却（软约束）\n")
+		sb.WriteString("刚平仓亏损后在同一币种上反向开仓 = 高风险操作。不禁止，但需满足：\n")
+		sb.WriteString("- 置信度扣 15 分（扣后仍须 ≥ 最低置信度门槛）\n")
+		sb.WriteString("- 推理中必须回答：为什么这次反转不同于上次失败？有哪些新信号？\n")
+		sb.WriteString("- 须有 ≥2 个上次交易中不存在的额外确认信号\n\n")
+
+		sb.WriteString("## 连亏自省\n")
+		sb.WriteString("开仓前检查「近期已完成交易」中同一币种的记录：\n")
+		sb.WriteString("- 近 3 笔中 ≥2 笔亏损 → 该币种置信度扣 10 分\n")
+		sb.WriteString("- 出现 多→空→多 或 空→多→空 交替亏损 → whipsaw 模式，该币种本周期必须 wait\n\n")
+
+		sb.WriteString("## 置信度扣分表（与正面评分叠加）\n")
+		sb.WriteString("| 情况 | 扣分 |\n")
+		sb.WriteString("|------|------|\n")
+		sb.WriteString("| 同币种平仓亏损后反向开仓 | -15 |\n")
+		sb.WriteString("| 近 3 笔同币种交易 ≥2 笔亏损 | -10 |\n")
+		sb.WriteString("| 价格在布林中轨附近（非关键位） | -10 |\n")
+		sb.WriteString("| 仅单一时间框架信号 | -10 |\n")
+		sb.WriteString("| 震荡市中非区间边缘入场 | -15 |\n\n")
+	} else {
+		sb.WriteString("# 🛡️ Trade Quality Control (Anti-Whipsaw)\n\n")
+
+		sb.WriteString("## Entry Position Requirement\n")
+		sb.WriteString("Indicator signals alone (e.g. RSI oversold) are NOT sufficient to open. Confirm price position:\n")
+		sb.WriteString("- Long: price must be near key support (BOLL lower band, EMA support, recent swing low)\n")
+		sb.WriteString("- Short: price must be near key resistance (BOLL upper band, EMA resistance, recent swing high)\n")
+		sb.WriteString("- Price near BOLL middle band = no-man's land — do NOT open unless very strong trend signal\n")
+		sb.WriteString("- No chasing: if price already moved significantly in your direction → entry window passed, wait for pullback\n\n")
+
+		sb.WriteString("## Reversal Cooldown (Soft Constraint)\n")
+		sb.WriteString("Opening reverse position on SAME coin right after closing at a loss = high-risk move. Not banned, but requires:\n")
+		sb.WriteString("- Confidence penalty: -15 points (must still meet minimum after deduction)\n")
+		sb.WriteString("- Must explain in reasoning: why is this reversal different from the failed trade? What new signals?\n")
+		sb.WriteString("- Must have ≥2 additional confirming signals that the previous trade lacked\n\n")
+
+		sb.WriteString("## Loss Pattern Self-Check\n")
+		sb.WriteString("Before opening, check Recent Completed Trades for same-coin patterns:\n")
+		sb.WriteString("- If ≥2 of last 3 trades on same coin are losses → deduct 10 confidence points\n")
+		sb.WriteString("- If alternating long→short→long or short→long→short losses → whipsaw detected → WAIT this cycle\n\n")
+
+		sb.WriteString("## Confidence Deduction Table (stack with positive scoring)\n")
+		sb.WriteString("| Condition | Deduction |\n")
+		sb.WriteString("|-----------|----------|\n")
+		sb.WriteString("| Reverse position after loss on same coin | -15 |\n")
+		sb.WriteString("| ≥2 of last 3 trades on same coin are losses | -10 |\n")
+		sb.WriteString("| Price near BOLL mid-band (not at key level) | -10 |\n")
+		sb.WriteString("| Only single timeframe signal | -10 |\n")
+		sb.WriteString("| Ranging market, not at range edge | -15 |\n\n")
+	}
+
 	// 6. Decision process (editable)
 	if promptSections.DecisionProcess != "" {
 		sb.WriteString(promptSections.DecisionProcess)
@@ -338,12 +399,18 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 	if lang == LangChinese {
 		sb.WriteString("\n**市场状态分类（分析时首先判断）：**\n")
 		sb.WriteString("- 趋势市：EMA20 > EMA50 且斜率一致，RSI 40-70（上涨）或 30-60（下跌）→ 顺趋势交易\n")
-		sb.WriteString("- 震荡市：EMA20 ≈ EMA50（横盘），RSI在40-60之间震荡，ATR下降 → 观望或仅做区间边缘\n")
-		sb.WriteString("- 高波动：ATR飙升（>1.5倍均值），VIX升高 → 缩小仓位，放宽止损\n")
+		sb.WriteString("- 震荡市：EMA20 ≈ EMA50（横盘），RSI 在 40-60 之间震荡，ATR 下降\n")
+		sb.WriteString("  → 置信度上限 75，只能在布林上下轨附近入场\n")
+		sb.WriteString("  → 识别方法：4H 内价格波动 <2% = 震荡。不要在震荡市中追趋势！\n")
+		sb.WriteString("  → 如果连续 2 笔在震荡市中亏损 → 停止该币种交易，等待趋势明确\n")
+		sb.WriteString("- 高波动：ATR 飙升（>1.5 倍均值），VIX 升高 → 缩小仓位，放宽止损\n")
 	} else {
 		sb.WriteString("\n**Market Regime Classification (do this FIRST in your analysis):**\n")
 		sb.WriteString("- TRENDING: EMA20 > EMA50 with consistent slope, RSI 40-70 (up) or 30-60 (down) → trade with trend\n")
-		sb.WriteString("- RANGING: EMA20 ≈ EMA50 (flat), RSI oscillating 40-60, ATR declining → avoid or scalp edges only\n")
+		sb.WriteString("- RANGING: EMA20 ≈ EMA50 (flat), RSI oscillating 40-60, ATR declining\n")
+		sb.WriteString("  → Confidence cap at 75, ONLY enter near BOLL upper/lower bands\n")
+		sb.WriteString("  → Detection: price range <2% over 4H = ranging. Do NOT chase trends in ranging markets!\n")
+		sb.WriteString("  → If 2 consecutive losses in ranging market → stop trading that coin, wait for trend\n")
 		sb.WriteString("- HIGH VOLATILITY: ATR spike (>1.5× average), VIX elevated → reduce position size, widen stops\n")
 	}
 }
