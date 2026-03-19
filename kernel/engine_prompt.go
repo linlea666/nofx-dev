@@ -63,13 +63,49 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
 		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
-	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+	minPos := riskControl.MinPositionSize
+	if minPos <= 0 {
+		minPos = 12
+	}
+	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n", minPos))
+
+	btcEthMax := accountEquity * btcEthPosValueRatio
+	altcoinMax := accountEquity * altcoinPosValueRatio
+	if lang == LangChinese {
+		if btcEthMax < minPos {
+			sb.WriteString(fmt.Sprintf("- ⚠️ BTC/ETH 最大仓位 (%.0f USDT) < 最小仓位 (%.0f USDT) — 禁止开 BTC/ETH 仓位！\n", btcEthMax, minPos))
+		}
+		if altcoinMax < minPos {
+			sb.WriteString(fmt.Sprintf("- ⚠️ 山寨币最大仓位 (%.0f USDT) < 最小仓位 (%.0f USDT) — 禁止开山寨币仓位！\n", altcoinMax, minPos))
+		}
+	} else {
+		if btcEthMax < minPos {
+			sb.WriteString(fmt.Sprintf("- ⚠️ BTC/ETH max position (%.0f USDT) < min position (%.0f USDT) — DO NOT open BTC/ETH positions!\n", btcEthMax, minPos))
+		}
+		if altcoinMax < minPos {
+			sb.WriteString(fmt.Sprintf("- ⚠️ Altcoin max position (%.0f USDT) < min position (%.0f USDT) — DO NOT open altcoin positions!\n", altcoinMax, minPos))
+		}
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
 	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
+	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n", riskControl.MinConfidence))
+	if lang == LangChinese {
+		sb.WriteString("  置信度评分指南:\n")
+		sb.WriteString("  90+: 多时间框架趋势一致 + 宏观面利好 + 量能/OI确认\n")
+		sb.WriteString("  80-89: ≥2个时间框架技术信号清晰 + 宏观面中性\n")
+		sb.WriteString("  75-79: 单时间框架信号 + 存在一个矛盾因素\n")
+		sb.WriteString(fmt.Sprintf("  <%d: 不开仓 — 等待更好的机会\n\n", riskControl.MinConfidence))
+	} else {
+		sb.WriteString("  Confidence scoring guide:\n")
+		sb.WriteString("  90+: Multi-timeframe trend alignment + macro favorable + volume/OI confirmation\n")
+		sb.WriteString("  80-89: Clear technical signal on ≥2 timeframes + neutral macro\n")
+		sb.WriteString("  75-79: Single timeframe signal with one conflicting factor\n")
+		sb.WriteString(fmt.Sprintf("  <%d: Do NOT open — wait for better setup\n\n", riskControl.MinConfidence))
+	}
 
 	// Position sizing guidance
 	sb.WriteString("## Position Sizing Guidance\n")
@@ -219,9 +255,60 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 		sb.WriteString("- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)\n")
 	}
 
+	lang := e.GetLanguage()
+
 	if indicators.EnableMacroData {
-		sb.WriteString("- Macro indicators with intraday OHLC: Gold, Oil, Silver, Copper, CME BTC Futures, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY\n")
-		sb.WriteString("  Key: DXY inverse to BTC/Gold | VIX>25 = extreme fear (flight to safety) | Oil spike = inflation risk | CME BTC premium = institutional demand\n")
+		if lang == LangChinese {
+			sb.WriteString("- 宏观指标（日内OHLC）：黄金、原油、白银、铜、CME BTC、标普500、纳斯达克、VIX、美国10年期国债、美元指数、美元/日元\n")
+			sb.WriteString("  定位：宏观面 = 方向过滤器（不做逆宏观方向的交易），技术面 = 入场触发器\n")
+			sb.WriteString("  关键关联：\n")
+			sb.WriteString("    DXY↑ → BTC/黄金承压 | DXY↓ → BTC/黄金利好\n")
+			sb.WriteString("    VIX>25 → 极度恐慌，避险资金流入（利多黄金，BTC波动加大）\n")
+			sb.WriteString("    US10Y↑ → 无息资产持有成本增加（利空黄金/BTC）\n")
+			sb.WriteString("    原油飙升 → 通胀风险 → 鹰派加息预期\n")
+			sb.WriteString("    CME BTC期货溢价 vs 现货 → 机构资金供需信号\n")
+			sb.WriteString("    标普500/纳斯达克趋势 → 整体风险偏好指标\n")
+		} else {
+			sb.WriteString("- Macro indicators (intraday OHLC): Gold, Oil, Silver, Copper, CME BTC, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY\n")
+			sb.WriteString("  Role: Macro data = directional FILTER (do NOT trade against macro trend), Technical = entry TRIGGER\n")
+			sb.WriteString("  Key correlations:\n")
+			sb.WriteString("    DXY↑ → BTC/Gold bearish | DXY↓ → BTC/Gold bullish\n")
+			sb.WriteString("    VIX>25 → extreme fear, safe-haven flow (bullish Gold, volatile BTC)\n")
+			sb.WriteString("    US10Y↑ → higher holding cost for non-yield assets (bearish Gold/BTC)\n")
+			sb.WriteString("    Oil spike → inflation risk → hawkish Fed expectation\n")
+			sb.WriteString("    CME BTC premium vs spot → institutional demand/supply signal\n")
+			sb.WriteString("    S&P500/NASDAQ trend → overall risk appetite gauge\n")
+		}
+	}
+
+	if kline.EnableMultiTimeframe && len(kline.SelectedTimeframes) > 1 {
+		if lang == LangChinese {
+			sb.WriteString("\n**多时间框架分析协议：**\n")
+			sb.WriteString("- 4H：判断趋势方向 — 只做顺趋势交易（EMA斜率 + RSI位置）\n")
+			sb.WriteString("- 1H：确认市场结构 — 识别支撑/阻力/形态\n")
+			sb.WriteString("- 15M：精确入场时机 — 寻找回踩完成或突破确认\n")
+			sb.WriteString("- 5M：微调止损位 — 使用近期摆动高/低点\n")
+			sb.WriteString("- 规则：若4H和1H方向矛盾 → 等待，不强行入场\n")
+		} else {
+			sb.WriteString("\n**Multi-Timeframe Analysis Protocol:**\n")
+			sb.WriteString("- 4H: Determine trend direction — ONLY trade WITH the trend (EMA slope + RSI position)\n")
+			sb.WriteString("- 1H: Confirm market structure — identify support/resistance/patterns\n")
+			sb.WriteString("- 15M: Refine entry timing — look for pullback completion or breakout confirmation\n")
+			sb.WriteString("- 5M: Fine-tune stop loss placement — use recent swing high/low\n")
+			sb.WriteString("- Rule: If 4H and 1H disagree on direction → WAIT, do not force entry\n")
+		}
+	}
+
+	if lang == LangChinese {
+		sb.WriteString("\n**市场状态分类（分析时首先判断）：**\n")
+		sb.WriteString("- 趋势市：EMA20 > EMA50 且斜率一致，RSI 40-70（上涨）或 30-60（下跌）→ 顺趋势交易\n")
+		sb.WriteString("- 震荡市：EMA20 ≈ EMA50（横盘），RSI在40-60之间震荡，ATR下降 → 观望或仅做区间边缘\n")
+		sb.WriteString("- 高波动：ATR飙升（>1.5倍均值），VIX升高 → 缩小仓位，放宽止损\n")
+	} else {
+		sb.WriteString("\n**Market Regime Classification (do this FIRST in your analysis):**\n")
+		sb.WriteString("- TRENDING: EMA20 > EMA50 with consistent slope, RSI 40-70 (up) or 30-60 (down) → trade with trend\n")
+		sb.WriteString("- RANGING: EMA20 ≈ EMA50 (flat), RSI oscillating 40-60, ATR declining → avoid or scalp edges only\n")
+		sb.WriteString("- HIGH VOLATILITY: ATR spike (>1.5× average), VIX elevated → reduce position size, widen stops\n")
 	}
 }
 

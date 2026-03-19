@@ -137,8 +137,13 @@ func FetchMacroData() *MacroData {
 		}
 	}
 
-	if len(data.Errors) > 0 {
-		logger.Infof("⚠️ [Macro] %d/%d indicators available, errors: %v", available, total, data.Errors)
+	if available < total {
+		logger.Infof("⚠️ [Macro] %d/%d indicators available (missing %d)", available, total, total-available)
+		if len(data.Errors) > 0 {
+			for _, e := range data.Errors {
+				logger.Infof("  ↳ %s", e)
+			}
+		}
 	} else {
 		logger.Infof("✅ [Macro] All %d/%d macro indicators fetched successfully", available, total)
 	}
@@ -206,15 +211,22 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 
 	parsed := parseSinaResponse(string(body))
 
+	var failed []string
 	for _, inst := range instruments {
 		fields, ok := parsed[inst.code]
 		if !ok || len(fields) < 9 {
+			failed = append(failed, inst.name)
 			continue
 		}
 		q := parseSinaHFFields(fields, inst.name, inst.suffix)
 		if q != nil {
 			*inst.target = q
+		} else {
+			failed = append(failed, inst.name)
 		}
+	}
+	if len(failed) > 0 {
+		addError(fmt.Sprintf("sina futures: %d/%d unavailable (%s)", len(failed), len(instruments), strings.Join(failed, ", ")))
 	}
 }
 

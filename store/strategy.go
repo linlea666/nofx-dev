@@ -357,12 +357,21 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
 			EntryStandards: `# 🎯 入场标准（严格）
 
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
+只在多个信号共振时入场。避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。
+
+入场检查清单（至少满足3项）：
+- 4H趋势方向与拟开仓方向一致
+- 1H结构确认（支撑/阻力/形态）
+- 量价配合（放量突破或缩量回踩）
+- 宏观面不矛盾（DXY/VIX/国债方向合理）
+- RSI未处于极端区域（非超买做多/非超卖做空）`,
 			DecisionProcess: `# 📋 决策流程
 
-1. 检查持仓 → 是否止盈/止损
-2. 扫描候选币种 + 多时间框架 → 是否存在强信号
-3. 先写思维链，再输出结构化JSON`,
+1. **判断市场状态** → 趋势/震荡/高波动？（决定策略类型）
+2. 检查持仓 → 是否需要止盈/止损/调整
+3. 扫描候选币种 → 多时间框架分析（4H定方向→1H定结构→15M/5M定入场）
+4. 评估宏观环境 → 是否支持当前方向（宏观矛盾则降级或放弃）
+5. 计算置信度 → ≥阈值才入场，写思维链后输出结构化JSON`,
 		}
 	} else {
 		config.PromptSections = PromptSectionsConfig{
@@ -377,12 +386,21 @@ Your task is to make trading decisions based on the provided market data. You ar
 If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
 			EntryStandards: `# 🎯 Entry Standards (Strict)
 
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
+Only enter when multiple signals resonate. Avoid single-indicator trades, contradictory signals, sideways chop, or reopening immediately after closing.
+
+Entry checklist (meet at least 3):
+- 4H trend direction aligns with intended position
+- 1H structure confirms (support/resistance/pattern)
+- Volume confirms (breakout on volume or pullback on low volume)
+- Macro environment not contradicting (DXY/VIX/Yields direction reasonable)
+- RSI not in extreme zone (not buying overbought / not shorting oversold)`,
 			DecisionProcess: `# 📋 Decision Process
 
-1. Check positions → whether to take profit/stop loss
-2. Scan candidate coins + multi-timeframe → whether strong signals exist
-3. Write chain of thought first, then output structured JSON`,
+1. **Classify market regime** → Trending / Ranging / High-Volatility? (determines strategy type)
+2. Check positions → take profit / stop loss / adjust?
+3. Scan candidate coins → multi-timeframe analysis (4H direction → 1H structure → 15M/5M entry)
+4. Evaluate macro environment → does it support the direction? (if conflicting → downgrade or skip)
+5. Calculate confidence → only enter if ≥ threshold, write chain of thought then output structured JSON`,
 		}
 	}
 
