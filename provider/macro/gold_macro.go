@@ -1,6 +1,7 @@
 package macro
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -18,7 +18,7 @@ import (
 // ============================================================================
 
 // CommodityQuote represents an instrument with full intraday OHLC data.
-// Used for instruments available through Sina hf_ API and enhanced Sina Bond API.
+// Used for instruments from East Money snapshot API and Sina Bond API.
 type CommodityQuote struct {
 	Name       string  `json:"name"`
 	Current    float64 `json:"current"`
@@ -45,15 +45,22 @@ type MacroIndicator struct {
 	Available bool    `json:"available"`
 }
 
+// NewsItem represents a market news headline for sentiment analysis.
+type NewsItem struct {
+	Title  string `json:"title"`
+	Source string `json:"source"`
+	Time   string `json:"time"`
+}
+
 // MacroData holds all macro indicators for trading decisions.
 type MacroData struct {
-	// Commodities (Sina hf_, full intraday OHLC)
+	// Commodities (East Money snapshot API)
 	Gold     *CommodityQuote `json:"gold,omitempty"`
 	CrudeOil *CommodityQuote `json:"crude_oil,omitempty"`
 	Silver   *CommodityQuote `json:"silver,omitempty"`
 	Copper   *CommodityQuote `json:"copper,omitempty"`
 
-	// Financial futures (Sina hf_)
+	// Financial futures (East Money / not available: CME BTC)
 	CMEBTC *CommodityQuote `json:"cme_btc,omitempty"`
 	SP500  *CommodityQuote `json:"sp500,omitempty"`
 	NASDAQ *CommodityQuote `json:"nasdaq,omitempty"`
@@ -69,6 +76,9 @@ type MacroData struct {
 	// COMEX supplemental (volume/OI)
 	ComexVolume string `json:"comex_volume,omitempty"`
 	ComexOI     string `json:"comex_oi,omitempty"`
+
+	// Market news headlines (East Money FastNews)
+	News []NewsItem `json:"news,omitempty"`
 
 	FetchedAt time.Time `json:"fetched_at"`
 	Errors    []string  `json:"errors,omitempty"`
@@ -87,15 +97,6 @@ var (
 	cacheMu     sync.RWMutex
 	cacheTTL    = 5 * time.Minute
 	httpClient  = &http.Client{Timeout: 15 * time.Second}
-
-	// Sina HTTPS has slow TLS handshake from overseas servers (~60s+).
-	// Uses independent cache with background refresh to avoid blocking decision cycles.
-	sinaClient     = &http.Client{Timeout: 90 * time.Second}
-	sinaCached     *MacroData
-	sinaErrors     []string
-	sinaCacheMu    sync.RWMutex
-	sinaCacheAt    time.Time
-	sinaRefreshing int32
 )
 
 // FetchMacroData returns cached macro data or fetches fresh data if cache expired.
@@ -124,19 +125,18 @@ func FetchMacroData() *MacroData {
 		mu.Unlock()
 	}
 
-	wg.Add(3)
+	wg.Add(5)
+	go func() { defer wg.Done(); fetchFromEastMoney(data, addError) }()
 	go func() { defer wg.Done(); fetchFromIfnews(data, addError) }()
 	go func() { defer wg.Done(); fetchUS10YFromSina(data, addError) }()
 	go func() { defer wg.Done(); fetchCOMEXFromCME(data, addError) }()
-
-	refreshSinaBackground()
+	go func() { defer wg.Done(); fetchNews(data, addError) }()
 	wg.Wait()
-	applySinaCache(data, addError)
 
 	available := 0
 	total := 0
 	for _, q := range []*CommodityQuote{data.Gold, data.CrudeOil, data.Silver, data.Copper,
-		data.CMEBTC, data.SP500, data.NASDAQ, data.VIX, data.US10YYield} {
+		data.SP500, data.NASDAQ, data.VIX, data.US10YYield} {
 		total++
 		if q != nil && q.Available {
 			available++
@@ -171,225 +171,119 @@ func FetchGoldMacro() *GoldMacroData {
 }
 
 // ============================================================================
-// Sina Background Refresh (non-blocking)
+// East Money Snapshot API (replaces Sina hf_ which is blocked by IP)
+// 7 instruments via push2delay.eastmoney.com, parallel HTTP, no auth needed.
 // ============================================================================
 
-func refreshSinaBackground() {
-	sinaCacheMu.RLock()
-	fresh := sinaCached != nil && time.Since(sinaCacheAt) < cacheTTL
-	sinaCacheMu.RUnlock()
-	if fresh {
-		return
+type emInstrument struct {
+	secid   string
+	name    string
+	decimal int // raw integer values are divided by 10^decimal
+	suffix  string
+	target  **CommodityQuote
+}
+
+func emDivisor(decimal int) float64 {
+	switch decimal {
+	case 1:
+		return 10
+	case 2:
+		return 100
+	case 3:
+		return 1000
+	case 4:
+		return 10000
+	default:
+		return 1
+	}
+}
+
+func fetchFromEastMoney(data *MacroData, addError func(string)) {
+	instruments := []emInstrument{
+		{"101.GC00Y", "黄金 (COMEX)", 1, "", &data.Gold},
+		{"102.CL00Y", "原油 (NYMEX)", 2, "", &data.CrudeOil},
+		{"101.SI00Y", "白银 (COMEX)", 3, "", &data.Silver},
+		{"101.HG00Y", "铜 (COMEX)", 4, "", &data.Copper},
+		{"100.SPX", "标普500", 2, "", &data.SP500},
+		{"100.NDX", "纳斯达克", 2, "", &data.NASDAQ},
+		{"167.VIX", "VIX", 2, "", &data.VIX},
 	}
 
-	if !atomic.CompareAndSwapInt32(&sinaRefreshing, 0, 1) {
-		return
-	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failed []string
 
-	go func() {
-		defer atomic.StoreInt32(&sinaRefreshing, 0)
-
-		tmpData := &MacroData{}
-		var errs []string
-		var mu sync.Mutex
-		addErr := func(msg string) {
+	for i := range instruments {
+		wg.Add(1)
+		go func(inst *emInstrument) {
+			defer wg.Done()
+			q := fetchEMQuote(inst)
 			mu.Lock()
-			errs = append(errs, msg)
+			if q != nil {
+				*inst.target = q
+			} else {
+				failed = append(failed, inst.name)
+			}
 			mu.Unlock()
-		}
-
-		fetchSinaFutures(tmpData, addErr)
-
-		sinaCacheMu.Lock()
-		sinaCached = tmpData
-		sinaErrors = errs
-		sinaCacheAt = time.Now()
-		sinaCacheMu.Unlock()
-
-		if len(errs) > 0 {
-			logger.Infof("⚠️ [Sina] Background refresh failed: %s", strings.Join(errs, "; "))
-		} else {
-			logger.Infof("✅ [Sina] Background refresh successful (8 instruments)")
-		}
-	}()
-}
-
-func applySinaCache(data *MacroData, addError func(string)) {
-	sinaCacheMu.RLock()
-	defer sinaCacheMu.RUnlock()
-
-	if sinaCached == nil {
-		addError("sina futures: initial fetch in progress")
-		return
+		}(&instruments[i])
 	}
 
-	data.Gold = sinaCached.Gold
-	data.CrudeOil = sinaCached.CrudeOil
-	data.Silver = sinaCached.Silver
-	data.Copper = sinaCached.Copper
-	data.CMEBTC = sinaCached.CMEBTC
-	data.SP500 = sinaCached.SP500
-	data.NASDAQ = sinaCached.NASDAQ
-	data.VIX = sinaCached.VIX
-
-	for _, e := range sinaErrors {
-		addError(e)
+	wg.Wait()
+	if len(failed) > 0 {
+		addError(fmt.Sprintf("eastmoney: %d/%d unavailable (%s)",
+			len(failed), len(instruments), strings.Join(failed, ", ")))
 	}
 }
 
-// ============================================================================
-// Sina hf_ Futures Batch API (8 instruments, 1 HTTP request)
-// ============================================================================
+func fetchEMQuote(inst *emInstrument) *CommodityQuote {
+	url := fmt.Sprintf(
+		"https://push2delay.eastmoney.com/api/qt/stock/get?secid=%s&ut=f057cbcbce2a86e2866ab8877db1d059&fields=f43,f44,f45,f46,f58,f60,f170",
+		inst.secid)
 
-type sinaInstrument struct {
-	code   string
-	name   string
-	suffix string
-	target **CommodityQuote
-}
-
-func fetchSinaFutures(data *MacroData, addError func(string)) {
-	instruments := []sinaInstrument{
-		{"hf_XAU", "黄金 (XAU)", "", &data.Gold},
-		{"hf_CL", "原油 (CL)", "", &data.CrudeOil},
-		{"hf_SI", "白银 (SI)", "", &data.Silver},
-		{"hf_HG", "铜 (HG)", "", &data.Copper},
-		{"hf_BTC", "CME BTC", "", &data.CMEBTC},
-		{"hf_ES", "标普500 (ES)", "", &data.SP500},
-		{"hf_NQ", "纳斯达克 (NQ)", "", &data.NASDAQ},
-		{"hf_VX", "VIX", "", &data.VIX},
-	}
-
-	codes := make([]string, len(instruments))
-	for i, inst := range instruments {
-		codes[i] = inst.code
-	}
-
-	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
-	req, err := http.NewRequest("GET", url, nil)
+	resp, err := httpClient.Get(url)
 	if err != nil {
-		addError(fmt.Sprintf("sina futures: %v", err))
-		return
-	}
-	req.Header.Set("Host", "w.sinajs.cn")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
-	req.Header.Set("Referer", "https://gu.sina.cn/ft/hq/hf.php?symbol=XAU")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("Sec-Fetch-Mode", "no-cors")
-	req.Header.Set("Sec-Fetch-Dest", "script")
-
-	resp, err := sinaClient.Do(req)
-	if err != nil {
-		addError(fmt.Sprintf("sina futures: %v", err))
-		return
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		addError(fmt.Sprintf("sina futures: HTTP %d", resp.StatusCode))
-		return
+		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		addError(fmt.Sprintf("sina futures read: %v", err))
-		return
+		return nil
 	}
 
-	parsed := parseSinaResponse(string(body))
-
-	var failed []string
-	for _, inst := range instruments {
-		fields, ok := parsed[inst.code]
-		if !ok || len(fields) < 9 {
-			failed = append(failed, inst.name)
-			continue
-		}
-		q := parseSinaHFFields(fields, inst.name, inst.suffix)
-		if q != nil {
-			*inst.target = q
-		} else {
-			failed = append(failed, inst.name)
-		}
+	var result struct {
+		Rc   int `json:"rc"`
+		Data *struct {
+			F43  int64  `json:"f43"`  // current price
+			F44  int64  `json:"f44"`  // day high
+			F45  int64  `json:"f45"`  // day low
+			F46  int64  `json:"f46"`  // day open
+			F58  string `json:"f58"`  // Chinese name
+			F60  int64  `json:"f60"`  // previous close
+			F170 int64  `json:"f170"` // change pct × 100
+		} `json:"data"`
 	}
-	if len(failed) > 0 {
-		addError(fmt.Sprintf("sina futures: %d/%d unavailable (%s)", len(failed), len(instruments), strings.Join(failed, ", ")))
-	}
-}
-
-// parseSinaResponse parses Sina's response into a map of code → fields.
-// Each line: var hq_str_hf_XAU="f0,f1,...";
-func parseSinaResponse(body string) map[string][]string {
-	result := make(map[string][]string)
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		eqIdx := strings.Index(line, "=")
-		if eqIdx < 0 {
-			continue
-		}
-		code := strings.TrimPrefix(line[:eqIdx], "var hq_str_")
-
-		q1 := strings.Index(line, "\"")
-		q2 := strings.LastIndex(line, "\"")
-		if q1 < 0 || q2 <= q1 {
-			continue
-		}
-		dataStr := line[q1+1 : q2]
-		if dataStr == "" {
-			continue
-		}
-		result[code] = strings.Split(dataStr, ",")
-	}
-	return result
-}
-
-// parseSinaHFFields parses comma-separated fields into a CommodityQuote.
-// Format: 0=Open, 1=Current, 2=Bid, 3=Ask, 4=High, 5=Low, 6=Time, 7=PrevClose, 8=Settlement
-func parseSinaHFFields(fields []string, name, suffix string) *CommodityQuote {
-	parseF := func(idx int) float64 {
-		if idx >= len(fields) {
-			return 0
-		}
-		v, _ := strconv.ParseFloat(strings.TrimSpace(fields[idx]), 64)
-		return v
+	if err := json.Unmarshal(body, &result); err != nil || result.Rc != 0 || result.Data == nil {
+		return nil
 	}
 
-	open := parseF(0)
-	current := parseF(1)
-	bid := parseF(2)
-	ask := parseF(3)
-	high := parseF(4)
-	low := parseF(5)
-	prevClose := parseF(7)
-	settlement := parseF(8)
+	d := result.Data
+	div := emDivisor(inst.decimal)
 
-	timeStr := ""
-	if len(fields) > 6 {
-		timeStr = strings.TrimSpace(fields[6])
-	}
-
-	if current == 0 {
-		if bid > 0 && ask > 0 {
-			current = (bid + ask) / 2
-		} else if bid > 0 {
-			current = bid
-		} else if ask > 0 {
-			current = ask
-		}
-	}
+	current := float64(d.F43) / div
 	if current == 0 {
 		return nil
 	}
 
-	changePct := 0.0
-	if prevClose > 0 {
-		changePct = (current - prevClose) / prevClose * 100
-	}
+	high := float64(d.F44) / div
+	low := float64(d.F45) / div
+	open := float64(d.F46) / div
+	prevClose := float64(d.F60) / div
+	changePct := float64(d.F170) / 100.0
 
 	dayRange := 0.0
 	if prevClose > 0 && high > 0 && low > 0 {
@@ -397,20 +291,76 @@ func parseSinaHFFields(fields []string, name, suffix string) *CommodityQuote {
 	}
 
 	return &CommodityQuote{
-		Name:       name,
-		Current:    current,
-		Open:       open,
-		High:       high,
-		Low:        low,
-		PrevClose:  prevClose,
-		Settlement: settlement,
-		Bid:        bid,
-		Ask:        ask,
-		ChangePct:  changePct,
-		DayRange:   dayRange,
-		Suffix:     suffix,
-		Available:  true,
-		UpdateTime: timeStr,
+		Name:      inst.name,
+		Current:   current,
+		Open:      open,
+		High:      high,
+		Low:       low,
+		PrevClose: prevClose,
+		ChangePct: changePct,
+		DayRange:  dayRange,
+		Suffix:    inst.suffix,
+		Available: true,
+	}
+}
+
+// ============================================================================
+// East Money FastNews API (market-moving headlines for sentiment analysis)
+// ============================================================================
+
+func fetchNews(data *MacroData, addError func(string)) {
+	reqBody := []byte(`{"biz":"wap_ad_724","timestamp":0,"client":"wap","trace":"wap_ad_724","h24ColumnCode":"102","pageSize":5,"order":2,"titleColor":"3"}`)
+
+	resp, err := httpClient.Post(
+		"https://np-waplist.eastmoney.com/comm/wap/getFastNews",
+		"application/json",
+		bytes.NewReader(reqBody),
+	)
+	if err != nil {
+		addError(fmt.Sprintf("news: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		addError(fmt.Sprintf("news: HTTP %d", resp.StatusCode))
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		addError(fmt.Sprintf("news read: %v", err))
+		return
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Data []struct {
+				Title     string `json:"title"`
+				MediaName string `json:"mediaName"`
+				ShowTime  string `json:"showTime"`
+			} `json:"data"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		addError(fmt.Sprintf("news parse: %v", err))
+		return
+	}
+	if result.Code != 1 {
+		addError(fmt.Sprintf("news: code=%d", result.Code))
+		return
+	}
+
+	for _, item := range result.Data.Data {
+		if item.Title == "" {
+			continue
+		}
+		data.News = append(data.News, NewsItem{
+			Title:  item.Title,
+			Source: item.MediaName,
+			Time:   item.ShowTime,
+		})
 	}
 }
 
@@ -758,6 +708,17 @@ func (d *MacroData) FormatForPromptZh() string {
 		sb.WriteString(fmt.Sprintf("\n(COMEX黄金: %s)\n", strings.Join(parts, ", ")))
 	}
 
+	if len(d.News) > 0 {
+		sb.WriteString("\n### 消息面（近期重要新闻）\n")
+		for _, n := range d.News {
+			timeStr := n.Time
+			if len(timeStr) > 11 {
+				timeStr = timeStr[11:]
+			}
+			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", timeStr, n.Title, n.Source))
+		}
+	}
+
 	if len(d.Errors) > 0 {
 		sb.WriteString(fmt.Sprintf("(注意: %d个数据源暂不可用)\n", len(d.Errors)))
 	}
@@ -824,6 +785,17 @@ func (d *MacroData) FormatForPromptEn() string {
 			parts = append(parts, fmt.Sprintf("OI: %s", d.ComexOI))
 		}
 		sb.WriteString(fmt.Sprintf("\n(COMEX Gold: %s)\n", strings.Join(parts, ", ")))
+	}
+
+	if len(d.News) > 0 {
+		sb.WriteString("\n### Market News (Recent Headlines)\n")
+		for _, n := range d.News {
+			timeStr := n.Time
+			if len(timeStr) > 11 {
+				timeStr = timeStr[11:]
+			}
+			sb.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", timeStr, n.Title, n.Source))
+		}
 	}
 
 	if len(d.Errors) > 0 {

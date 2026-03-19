@@ -356,24 +356,24 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 
 	if indicators.EnableMacroData {
 		if lang == LangChinese {
-			sb.WriteString("- 宏观指标（日内OHLC）：黄金、原油、白银、铜、CME BTC、标普500、纳斯达克、VIX、美国10年期国债、美元指数、美元/日元\n")
-			sb.WriteString("  定位：宏观面 = 方向过滤器（不做逆宏观方向的交易），技术面 = 入场触发器\n")
+			sb.WriteString("- 宏观指标（日内OHLC）：黄金、原油、白银、铜、标普500、纳斯达克、VIX、美国10年期国债、美元指数、美元/日元\n")
+			sb.WriteString("- 消息面：近期重要财经新闻标题（地缘政治、央行政策、大宗商品异动等）\n")
+			sb.WriteString("  定位：宏观面 = 方向过滤器（不做逆宏观方向的交易），技术面 = 入场触发器，消息面 = 风险事件预警\n")
 			sb.WriteString("  关键关联：\n")
 			sb.WriteString("    DXY↑ → BTC/黄金承压 | DXY↓ → BTC/黄金利好\n")
 			sb.WriteString("    VIX>25 → 极度恐慌，避险资金流入（利多黄金，BTC波动加大）\n")
 			sb.WriteString("    US10Y↑ → 无息资产持有成本增加（利空黄金/BTC）\n")
 			sb.WriteString("    原油飙升 → 通胀风险 → 鹰派加息预期\n")
-			sb.WriteString("    CME BTC期货溢价 vs 现货 → 机构资金供需信号\n")
 			sb.WriteString("    标普500/纳斯达克趋势 → 整体风险偏好指标\n")
 		} else {
-			sb.WriteString("- Macro indicators (intraday OHLC): Gold, Oil, Silver, Copper, CME BTC, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY\n")
-			sb.WriteString("  Role: Macro data = directional FILTER (do NOT trade against macro trend), Technical = entry TRIGGER\n")
+			sb.WriteString("- Macro indicators (intraday OHLC): Gold, Oil, Silver, Copper, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY\n")
+			sb.WriteString("- Market news: recent major financial headlines (geopolitics, central bank policy, commodity moves, etc.)\n")
+			sb.WriteString("  Role: Macro data = directional FILTER (do NOT trade against macro trend), Technical = entry TRIGGER, News = risk event alert\n")
 			sb.WriteString("  Key correlations:\n")
 			sb.WriteString("    DXY↑ → BTC/Gold bearish | DXY↓ → BTC/Gold bullish\n")
 			sb.WriteString("    VIX>25 → extreme fear, safe-haven flow (bullish Gold, volatile BTC)\n")
 			sb.WriteString("    US10Y↑ → higher holding cost for non-yield assets (bearish Gold/BTC)\n")
 			sb.WriteString("    Oil spike → inflation risk → hawkish Fed expectation\n")
-			sb.WriteString("    CME BTC premium vs spot → institutional demand/supply signal\n")
 			sb.WriteString("    S&P500/NASDAQ trend → overall risk appetite gauge\n")
 		}
 	}
