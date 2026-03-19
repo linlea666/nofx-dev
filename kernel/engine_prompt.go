@@ -218,6 +218,11 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 	if indicators.EnableQuantData {
 		sb.WriteString("- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)\n")
 	}
+
+	if indicators.EnableMacroData {
+		sb.WriteString("- Macro indicators with intraday OHLC: Gold, Oil, Silver, Copper, CME BTC Futures, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY\n")
+		sb.WriteString("  Key: DXY inverse to BTC/Gold | VIX>25 = extreme fear (flight to safety) | Oil spike = inflation risk | CME BTC premium = institutional demand\n")
+	}
 }
 
 // ============================================================================
@@ -237,6 +242,16 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
 			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
 			btcData.CurrentMACD, btcData.CurrentRSI7))
+	}
+
+	// Macro data (gold, oil, indices, VIX, etc.)
+	if ctx.MacroData != nil {
+		lang := e.GetLanguage()
+		if lang == LangChinese {
+			sb.WriteString(ctx.MacroData.FormatForPromptZh())
+		} else {
+			sb.WriteString(ctx.MacroData.FormatForPromptEn())
+		}
 	}
 
 	// Account information

@@ -9,6 +9,7 @@ import (
 	"nofx/logger"
 	"nofx/market"
 	"nofx/provider/hyperliquid"
+	"nofx/provider/macro"
 	"nofx/provider/nofxos"
 	"nofx/security"
 	"nofx/store"
@@ -105,6 +106,7 @@ type Context struct {
 	OIRankingData      *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
 	NetFlowRankingData *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
 	PriceRankingData   *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
+	MacroData          *macro.MacroData                    `json:"-"`
 	BTCETHLeverage     int                                `json:"-"`
 	AltcoinLeverage    int                                `json:"-"`
 	Timeframes         []string                           `json:"-"`

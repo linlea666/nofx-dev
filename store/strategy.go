@@ -198,6 +198,9 @@ type IndicatorConfig struct {
 	EnablePriceRanking   bool   `json:"enable_price_ranking"`             // whether to enable price ranking data
 	PriceRankingDuration string `json:"price_ranking_duration,omitempty"` // durations: "1h" or "1h,4h,24h"
 	PriceRankingLimit    int    `json:"price_ranking_limit,omitempty"`    // number of entries per ranking (default 10)
+
+	// Macro indicators (gold, oil, silver, copper, CME BTC, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY)
+	EnableMacroData bool `json:"enable_macro_data"`
 }
 
 // KlineConfig K-line configuration

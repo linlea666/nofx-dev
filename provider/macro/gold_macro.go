@@ -12,7 +12,31 @@ import (
 	"time"
 )
 
-// MacroIndicator represents a single macro indicator value.
+// ============================================================================
+// Types
+// ============================================================================
+
+// CommodityQuote represents an instrument with full intraday OHLC data.
+// Used for instruments available through Sina hf_ API and enhanced Sina Bond API.
+type CommodityQuote struct {
+	Name       string  `json:"name"`
+	Current    float64 `json:"current"`
+	Open       float64 `json:"open"`
+	High       float64 `json:"high"`
+	Low        float64 `json:"low"`
+	PrevClose  float64 `json:"prev_close"`
+	Settlement float64 `json:"settlement"`
+	Bid        float64 `json:"bid"`
+	Ask        float64 `json:"ask"`
+	ChangePct  float64 `json:"change_pct"`
+	DayRange   float64 `json:"day_range"`
+	Suffix     string  `json:"suffix,omitempty"`
+	Available  bool    `json:"available"`
+	UpdateTime string  `json:"update_time,omitempty"`
+}
+
+// MacroIndicator represents a simple macro indicator (price + change only).
+// Used for sources that don't provide OHLC data (ifnews: DXY, USDJPY).
 type MacroIndicator struct {
 	Name      string  `json:"name"`
 	Value     float64 `json:"value"`
@@ -20,55 +44,70 @@ type MacroIndicator struct {
 	Available bool    `json:"available"`
 }
 
-// GoldMacroData holds all macro indicators relevant to gold trading.
-type GoldMacroData struct {
-	DXY        MacroIndicator `json:"dxy"`
-	US10YYield MacroIndicator `json:"us_10y_yield"`
-	VIX        MacroIndicator `json:"vix"`
-	USDJPY     MacroIndicator `json:"usd_jpy"`
-	SP500      MacroIndicator `json:"sp500"`
-	NASDAQ     MacroIndicator `json:"nasdaq"`
+// MacroData holds all macro indicators for trading decisions.
+type MacroData struct {
+	// Commodities (Sina hf_, full intraday OHLC)
+	Gold     *CommodityQuote `json:"gold,omitempty"`
+	CrudeOil *CommodityQuote `json:"crude_oil,omitempty"`
+	Silver   *CommodityQuote `json:"silver,omitempty"`
+	Copper   *CommodityQuote `json:"copper,omitempty"`
 
-	ComexPrice    float64 `json:"comex_price,omitempty"`
-	ComexChangePct float64 `json:"comex_change_pct,omitempty"`
-	ComexVolume   string  `json:"comex_volume,omitempty"`
-	ComexOI       string  `json:"comex_oi,omitempty"`
-	ComexAvailable bool   `json:"comex_available"`
+	// Financial futures (Sina hf_)
+	CMEBTC *CommodityQuote `json:"cme_btc,omitempty"`
+	SP500  *CommodityQuote `json:"sp500,omitempty"`
+	NASDAQ *CommodityQuote `json:"nasdaq,omitempty"`
+
+	// Risk gauges
+	VIX        *CommodityQuote `json:"vix,omitempty"`
+	US10YYield *CommodityQuote `json:"us_10y_yield,omitempty"`
+
+	// Currency indices (ifnews, price + changePct only)
+	DXY    MacroIndicator `json:"dxy"`
+	USDJPY MacroIndicator `json:"usd_jpy"`
+
+	// COMEX supplemental (volume/OI)
+	ComexVolume string `json:"comex_volume,omitempty"`
+	ComexOI     string `json:"comex_oi,omitempty"`
 
 	FetchedAt time.Time `json:"fetched_at"`
 	Errors    []string  `json:"errors,omitempty"`
 }
 
+// GoldMacroData is a deprecated alias for MacroData (backward compatibility).
+type GoldMacroData = MacroData
+
+// ============================================================================
+// Cache & Fetch
+// ============================================================================
+
 var (
-	cachedData  *GoldMacroData
+	cachedMacro *MacroData
 	cachedAt    time.Time
 	cacheMu     sync.RWMutex
 	cacheTTL    = 5 * time.Minute
 	httpClient  = &http.Client{Timeout: 10 * time.Second}
 )
 
-// FetchGoldMacro returns cached macro data or fetches fresh data if cache expired.
-func FetchGoldMacro() *GoldMacroData {
+// FetchMacroData returns cached macro data or fetches fresh data if cache expired.
+func FetchMacroData() *MacroData {
 	cacheMu.RLock()
-	if cachedData != nil && time.Since(cachedAt) < cacheTTL {
+	if cachedMacro != nil && time.Since(cachedAt) < cacheTTL {
 		cacheMu.RUnlock()
-		return cachedData
+		return cachedMacro
 	}
 	cacheMu.RUnlock()
 
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
 
-	// Double-check after acquiring write lock
-	if cachedData != nil && time.Since(cachedAt) < cacheTTL {
-		return cachedData
+	if cachedMacro != nil && time.Since(cachedAt) < cacheTTL {
+		return cachedMacro
 	}
 
-	data := &GoldMacroData{FetchedAt: time.Now()}
+	data := &MacroData{FetchedAt: time.Now()}
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex // protects data.Errors
-
+	var mu sync.Mutex
 	addError := func(msg string) {
 		mu.Lock()
 		data.Errors = append(data.Errors, msg)
@@ -76,38 +115,209 @@ func FetchGoldMacro() *GoldMacroData {
 	}
 
 	wg.Add(4)
+	go func() { defer wg.Done(); fetchSinaFutures(data, addError) }()
 	go func() { defer wg.Done(); fetchFromIfnews(data, addError) }()
-	go func() { defer wg.Done(); fetchVIXFromSina(data, addError) }()
 	go func() { defer wg.Done(); fetchUS10YFromSina(data, addError) }()
 	go func() { defer wg.Done(); fetchCOMEXFromCME(data, addError) }()
 	wg.Wait()
 
 	available := 0
-	total := 6
-	for _, ind := range []MacroIndicator{data.DXY, data.US10YYield, data.VIX, data.USDJPY, data.SP500, data.NASDAQ} {
-		if ind.Available {
+	total := 0
+	for _, q := range []*CommodityQuote{data.Gold, data.CrudeOil, data.Silver, data.Copper,
+		data.CMEBTC, data.SP500, data.NASDAQ, data.VIX, data.US10YYield} {
+		total++
+		if q != nil && q.Available {
 			available++
 		}
 	}
-	if data.ComexAvailable {
-		available++
+	for _, ind := range []MacroIndicator{data.DXY, data.USDJPY} {
 		total++
+		if ind.Available {
+			available++
+		}
 	}
 
 	if len(data.Errors) > 0 {
 		logger.Infof("⚠️ [Macro] %d/%d indicators available, errors: %v", available, total, data.Errors)
 	} else {
-		logger.Infof("✅ [Macro] All %d/%d gold macro indicators fetched successfully", available, total)
+		logger.Infof("✅ [Macro] All %d/%d macro indicators fetched successfully", available, total)
 	}
 
-	cachedData = data
+	cachedMacro = data
 	cachedAt = time.Now()
 	return data
 }
 
-// ── ifnews API ──────────────────────────────────────────────────────────────
+// FetchGoldMacro is a deprecated wrapper for FetchMacroData (backward compatibility).
+func FetchGoldMacro() *GoldMacroData {
+	return FetchMacroData()
+}
 
-func fetchFromIfnews(data *GoldMacroData, addError func(string)) {
+// ============================================================================
+// Sina hf_ Futures Batch API (8 instruments, 1 HTTP request)
+// ============================================================================
+
+type sinaInstrument struct {
+	code   string
+	name   string
+	suffix string
+	target **CommodityQuote
+}
+
+func fetchSinaFutures(data *MacroData, addError func(string)) {
+	instruments := []sinaInstrument{
+		{"hf_XAU", "黄金 (XAU)", "", &data.Gold},
+		{"hf_CL", "原油 (CL)", "", &data.CrudeOil},
+		{"hf_SI", "白银 (SI)", "", &data.Silver},
+		{"hf_HG", "铜 (HG)", "", &data.Copper},
+		{"hf_BTC", "CME BTC", "", &data.CMEBTC},
+		{"hf_ES", "标普500 (ES)", "", &data.SP500},
+		{"hf_NQ", "纳斯达克 (NQ)", "", &data.NASDAQ},
+		{"hf_VX", "VIX", "", &data.VIX},
+	}
+
+	codes := make([]string, len(instruments))
+	for i, inst := range instruments {
+		codes[i] = inst.code
+	}
+
+	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		addError(fmt.Sprintf("sina futures: %v", err))
+		return
+	}
+	req.Header.Set("Host", "w.sinajs.cn")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://gu.sina.cn/")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		addError(fmt.Sprintf("sina futures: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		addError(fmt.Sprintf("sina futures read: %v", err))
+		return
+	}
+
+	parsed := parseSinaResponse(string(body))
+
+	for _, inst := range instruments {
+		fields, ok := parsed[inst.code]
+		if !ok || len(fields) < 9 {
+			continue
+		}
+		q := parseSinaHFFields(fields, inst.name, inst.suffix)
+		if q != nil {
+			*inst.target = q
+		}
+	}
+}
+
+// parseSinaResponse parses Sina's response into a map of code → fields.
+// Each line: var hq_str_hf_XAU="f0,f1,...";
+func parseSinaResponse(body string) map[string][]string {
+	result := make(map[string][]string)
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		eqIdx := strings.Index(line, "=")
+		if eqIdx < 0 {
+			continue
+		}
+		code := strings.TrimPrefix(line[:eqIdx], "var hq_str_")
+
+		q1 := strings.Index(line, "\"")
+		q2 := strings.LastIndex(line, "\"")
+		if q1 < 0 || q2 <= q1 {
+			continue
+		}
+		dataStr := line[q1+1 : q2]
+		if dataStr == "" {
+			continue
+		}
+		result[code] = strings.Split(dataStr, ",")
+	}
+	return result
+}
+
+// parseSinaHFFields parses comma-separated fields into a CommodityQuote.
+// Format: 0=Open, 1=Current, 2=Bid, 3=Ask, 4=High, 5=Low, 6=Time, 7=PrevClose, 8=Settlement
+func parseSinaHFFields(fields []string, name, suffix string) *CommodityQuote {
+	parseF := func(idx int) float64 {
+		if idx >= len(fields) {
+			return 0
+		}
+		v, _ := strconv.ParseFloat(strings.TrimSpace(fields[idx]), 64)
+		return v
+	}
+
+	open := parseF(0)
+	current := parseF(1)
+	bid := parseF(2)
+	ask := parseF(3)
+	high := parseF(4)
+	low := parseF(5)
+	prevClose := parseF(7)
+	settlement := parseF(8)
+
+	timeStr := ""
+	if len(fields) > 6 {
+		timeStr = strings.TrimSpace(fields[6])
+	}
+
+	if current == 0 {
+		if bid > 0 && ask > 0 {
+			current = (bid + ask) / 2
+		} else if bid > 0 {
+			current = bid
+		} else if ask > 0 {
+			current = ask
+		}
+	}
+	if current == 0 {
+		return nil
+	}
+
+	changePct := 0.0
+	if prevClose > 0 {
+		changePct = (current - prevClose) / prevClose * 100
+	}
+
+	dayRange := 0.0
+	if prevClose > 0 && high > 0 && low > 0 {
+		dayRange = (high - low) / prevClose * 100
+	}
+
+	return &CommodityQuote{
+		Name:       name,
+		Current:    current,
+		Open:       open,
+		High:       high,
+		Low:        low,
+		PrevClose:  prevClose,
+		Settlement: settlement,
+		Bid:        bid,
+		Ask:        ask,
+		ChangePct:  changePct,
+		DayRange:   dayRange,
+		Suffix:     suffix,
+		Available:  true,
+		UpdateTime: timeStr,
+	}
+}
+
+// ============================================================================
+// ifnews API (DXY, USDJPY only)
+// ============================================================================
+
+func fetchFromIfnews(data *MacroData, addError func(string)) {
 	resp, err := httpClient.Get("http://worldmap.ifnews.com/chinamap/china/financialData?type=all")
 	if err != nil {
 		addError(fmt.Sprintf("ifnews: %v", err))
@@ -122,10 +332,9 @@ func fetchFromIfnews(data *GoldMacroData, addError func(string)) {
 	}
 
 	var items []struct {
-		Continent   string  `json:"continent"`
-		Name        string  `json:"name"`
-		Price       string  `json:"price"`
-		PriceLimit  float64 `json:"priceLimit"`
+		Name       string  `json:"name"`
+		Price      string  `json:"price"`
+		PriceLimit float64 `json:"priceLimit"`
 	}
 	if err := json.Unmarshal(body, &items); err != nil {
 		addError(fmt.Sprintf("ifnews parse: %v", err))
@@ -133,16 +342,12 @@ func fetchFromIfnews(data *GoldMacroData, addError func(string)) {
 	}
 
 	nameMap := map[string]*MacroIndicator{
-		"美元指数":    &data.DXY,
-		"日元/1美元":  &data.USDJPY,
-		"标普500指数":  &data.SP500,
-		"纳斯达克指数": &data.NASDAQ,
+		"美元指数":   &data.DXY,
+		"日元/1美元": &data.USDJPY,
 	}
 	displayNames := map[string]string{
-		"美元指数":    "DXY (美元指数)",
-		"日元/1美元":  "USD/JPY",
-		"标普500指数":  "S&P 500",
-		"纳斯达克指数": "NASDAQ",
+		"美元指数":   "DXY (美元指数)",
+		"日元/1美元": "USD/JPY",
 	}
 
 	for _, item := range items {
@@ -159,74 +364,10 @@ func fetchFromIfnews(data *GoldMacroData, addError func(string)) {
 	}
 }
 
-// ── Sina VIX API ────────────────────────────────────────────────────────────
+// ============================================================================
+// Sina US 10Y Bond Yield API (enhanced with OHLC from minute data)
+// ============================================================================
 
-func fetchVIXFromSina(data *GoldMacroData, addError func(string)) {
-	resp, err := httpClient.Get("https://gi.finance.sina.com.cn/hq/min?symbol=VIX")
-	if err != nil {
-		addError(fmt.Sprintf("sina vix: %v", err))
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		addError(fmt.Sprintf("sina vix read: %v", err))
-		return
-	}
-
-	var result struct {
-		Code   int    `json:"code"`
-		Result struct {
-			Data [][]interface{} `json:"data"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		addError(fmt.Sprintf("sina vix parse: %v", err))
-		return
-	}
-
-	entries := result.Result.Data
-	if len(entries) == 0 {
-		addError("sina vix: no data")
-		return
-	}
-
-	// Latest VIX value from last entry
-	last := entries[len(entries)-1]
-	if len(last) < 2 {
-		addError("sina vix: invalid entry")
-		return
-	}
-	latestStr, _ := last[1].(string)
-	latest, _ := strconv.ParseFloat(latestStr, 64)
-
-	// Previous close from first entry (index 5 if available)
-	var prevClose float64
-	first := entries[0]
-	if len(first) >= 6 {
-		prevStr, _ := first[5].(string)
-		prevClose, _ = strconv.ParseFloat(prevStr, 64)
-	}
-
-	changePct := 0.0
-	if prevClose > 0 {
-		changePct = (latest - prevClose) / prevClose * 100
-	}
-
-	if latest > 0 {
-		data.VIX = MacroIndicator{
-			Name:      "VIX (恐慌指数)",
-			Value:     latest,
-			ChangePct: changePct,
-			Available: true,
-		}
-	}
-}
-
-// ── Sina US 10Y Bond Yield API ──────────────────────────────────────────────
-
-// extractJSON extracts the first JSON object from a JSONP or plain response.
 func extractJSON(raw string) string {
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
@@ -236,7 +377,7 @@ func extractJSON(raw string) string {
 	return raw
 }
 
-func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
+func fetchUS10YFromSina(data *MacroData, addError func(string)) {
 	url := "https://bond.finance.sina.com.cn/hq/gb/min?symbol=us10yt"
 	resp, err := httpClient.Get(url)
 	if err != nil {
@@ -251,7 +392,6 @@ func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
 		return
 	}
 
-	// Strip any JSONP wrapper by extracting the JSON object
 	jsonStr := extractJSON(string(body))
 
 	var result struct {
@@ -271,41 +411,91 @@ func fetchUS10YFromSina(data *GoldMacroData, addError func(string)) {
 		return
 	}
 
-	// Latest yield from last entry (index 1)
-	last := entries[len(entries)-1]
-	if len(last) < 2 {
-		addError("sina us10y: invalid entry")
-		return
-	}
-	latestStr, _ := last[1].(string)
-	latest, _ := strconv.ParseFloat(latestStr, 64)
-
-	// Previous close yield from first entry (index 5 if present, or index 3 for yield)
-	var prevClose float64
+	// First entry: [time, bond_price, _, yield, date, prev_close_yield]
 	first := entries[0]
+	var prevClose float64
 	if len(first) >= 6 {
 		prevStr, _ := first[5].(string)
 		prevClose, _ = strconv.ParseFloat(prevStr, 64)
 	}
 
-	changePct := 0.0
-	if prevClose > 0 {
-		changePct = (latest - prevClose) / prevClose * 100
+	// Open yield from first entry index 3
+	var openYield float64
+	if len(first) >= 4 {
+		openStr, _ := first[3].(string)
+		openYield, _ = strconv.ParseFloat(openStr, 64)
+	}
+	if openYield == 0 && len(entries) > 1 && len(entries[1]) >= 2 {
+		s, _ := entries[1][1].(string)
+		openYield, _ = strconv.ParseFloat(s, 64)
 	}
 
-	if latest > 0 {
-		data.US10YYield = MacroIndicator{
-			Name:      "US 10Y Yield (美国10年期国债)",
-			Value:     latest,
-			ChangePct: changePct,
-			Available: true,
+	// Scan all entries for current, high, low
+	var current, high, low float64
+	initialized := false
+
+	for i, entry := range entries {
+		if len(entry) < 2 {
+			continue
 		}
+		var yield float64
+		if i == 0 && len(entry) >= 4 {
+			yStr, _ := entry[3].(string)
+			yield, _ = strconv.ParseFloat(yStr, 64)
+		} else {
+			yStr, _ := entry[1].(string)
+			yield, _ = strconv.ParseFloat(yStr, 64)
+		}
+		if yield > 0 {
+			current = yield
+			if !initialized {
+				high = yield
+				low = yield
+				initialized = true
+			} else {
+				if yield > high {
+					high = yield
+				}
+				if yield < low {
+					low = yield
+				}
+			}
+		}
+	}
+
+	if current == 0 {
+		addError("sina us10y: no valid yield data")
+		return
+	}
+
+	changePct := 0.0
+	if prevClose > 0 {
+		changePct = (current - prevClose) / prevClose * 100
+	}
+	dayRange := 0.0
+	if prevClose > 0 && high > 0 && low > 0 {
+		dayRange = (high - low) / prevClose * 100
+	}
+
+	data.US10YYield = &CommodityQuote{
+		Name:      "US 10Y (美国10年期国债)",
+		Current:   current,
+		Open:      openYield,
+		High:      high,
+		Low:       low,
+		PrevClose: prevClose,
+		ChangePct: changePct,
+		DayRange:  dayRange,
+		Suffix:    "%",
+		Available: true,
 	}
 }
 
-// ── CME COMEX Gold Futures API ──────────────────────────────────────────────
+// ============================================================================
+// CME COMEX (Volume/OI supplemental data only)
+// ============================================================================
 
-func fetchCOMEXFromCME(data *GoldMacroData, addError func(string)) {
+func fetchCOMEXFromCME(data *MacroData, addError func(string)) {
 	url := "https://www.cmegroup.com/CmeWS/mvc/quotes/v2/437?isProtected&_t=" + strconv.FormatInt(time.Now().UnixMilli(), 10)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -336,11 +526,8 @@ func fetchCOMEXFromCME(data *GoldMacroData, addError func(string)) {
 
 	var cmeData struct {
 		Quotes []struct {
-			Last            string `json:"last"`
-			PercentageChange string `json:"percentageChange"`
-			Volume          string `json:"volume"`
-			IsFrontMonth    bool   `json:"isFrontMonth"`
-			ExpirationMonth string `json:"expirationMonth"`
+			Volume       string `json:"volume"`
+			IsFrontMonth bool   `json:"isFrontMonth"`
 		} `json:"quotes"`
 	}
 	if err := json.Unmarshal(body, &cmeData); err != nil {
@@ -349,29 +536,19 @@ func fetchCOMEXFromCME(data *GoldMacroData, addError func(string)) {
 	}
 
 	for _, q := range cmeData.Quotes {
-		if q.IsFrontMonth && q.Last != "-" {
-			price, _ := strconv.ParseFloat(q.Last, 64)
-			changePctStr := strings.TrimSuffix(strings.TrimPrefix(q.PercentageChange, "+"), "%")
-			changePct, _ := strconv.ParseFloat(changePctStr, 64)
+		if q.IsFrontMonth {
 			vol := strings.ReplaceAll(q.Volume, ",", "")
-
-			if price > 0 {
-				data.ComexPrice = price
-				data.ComexChangePct = changePct
+			if vol != "" && vol != "-" {
 				data.ComexVolume = vol
-				data.ComexAvailable = true
-				logger.Debugf("[Macro] COMEX front month %s: $%.1f (%s%%), vol=%s",
-					q.ExpirationMonth, price, q.PercentageChange, vol)
 			}
 			break
 		}
 	}
 
-	// Try fetching OI from volume endpoint (yesterday's date for settled data)
 	fetchCOMEXVolume(data, addError)
 }
 
-func fetchCOMEXVolume(data *GoldMacroData, addError func(string)) {
+func fetchCOMEXVolume(data *MacroData, addError func(string)) {
 	yesterday := time.Now().AddDate(0, 0, -1).Format("20060102")
 	url := fmt.Sprintf("https://www.cmegroup.com/CmeWS/mvc/Volume/Details/F/437/%s/F?tradeDate=%s&pageSize=500&isProtected&_t=%d",
 		yesterday, yesterday, time.Now().UnixMilli())
@@ -416,52 +593,68 @@ func fetchCOMEXVolume(data *GoldMacroData, addError func(string)) {
 	}
 }
 
-// ── Prompt Formatting ───────────────────────────────────────────────────────
+// ============================================================================
+// Prompt Formatting
+// ============================================================================
 
-// FormatForPromptZh formats macro data as a concise Chinese prompt section.
-func (d *GoldMacroData) FormatForPromptZh() string {
+// FormatForPromptZh formats macro data as a Chinese prompt section.
+func (d *MacroData) FormatForPromptZh() string {
 	if d == nil {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 宏观面数据 (黄金关键驱动因子)\n")
+	sb.WriteString("## 宏观面数据\n\n")
 
-	indicators := []struct {
-		ind    MacroIndicator
-		note   string
-		format string
+	writeQuoteSectionZh(&sb, "### 大宗商品\n", []quoteWithNote{
+		{d.Gold, "避险核心"},
+		{d.CrudeOil, "地缘/通胀代理"},
+		{d.Silver, "贵金属联动"},
+		{d.Copper, "经济晴雨表"},
+	})
+
+	writeQuoteSectionZh(&sb, "### 金融期货\n", []quoteWithNote{
+		{d.CMEBTC, "BTC期现溢价参考"},
+		{d.SP500, "风险偏好"},
+		{d.NASDAQ, "科技风险偏好"},
+	})
+
+	writeQuoteSectionZh(&sb, "### 风险指标\n", []quoteWithNote{
+		{d.VIX, ">25利多黄金/BTC避险"},
+		{d.US10YYield, "收益率↑=持金成本↑=金价承压"},
+	})
+
+	hasIndicator := false
+	for _, item := range []struct {
+		ind  MacroIndicator
+		note string
 	}{
-		{d.DXY, "黄金第一反向指标", "%.2f"},
-		{d.US10YYield, "黄金持有成本(收益率越高金价越承压)", "%.3f%%"},
-		{d.VIX, "市场恐慌度(>25利多黄金, <15利空)", "%.2f"},
-		{d.USDJPY, "避险资产联动(下跌=避险买金)", "%.2f"},
-		{d.SP500, "风险偏好(暴跌=避险买金)", "%.2f"},
-		{d.NASDAQ, "科技股风险偏好", "%.2f"},
+		{d.DXY, "黄金/BTC反向指标"},
+		{d.USDJPY, "避险联动(↓=避险买金)"},
+	} {
+		if item.ind.Available {
+			if !hasIndicator {
+				sb.WriteString("### 汇率指数\n")
+				hasIndicator = true
+			}
+			arrow := "↑"
+			if item.ind.ChangePct < 0 {
+				arrow = "↓"
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %.2f (%s%.2f%%) — %s\n",
+				item.ind.Name, item.ind.Value, arrow, abs(item.ind.ChangePct), item.note))
+		}
 	}
 
-	for _, item := range indicators {
-		if !item.ind.Available {
-			continue
-		}
-		arrow := "↑"
-		if item.ind.ChangePct < 0 {
-			arrow = "↓"
-		}
-		valStr := fmt.Sprintf(item.format, item.ind.Value)
-		sb.WriteString(fmt.Sprintf("- %s: %s (%s%.2f%%) — %s\n",
-			item.ind.Name, valStr, arrow, abs(item.ind.ChangePct), item.note))
-	}
-
-	if d.ComexAvailable {
-		sb.WriteString(fmt.Sprintf("- COMEX黄金主力合约: $%.1f (%.2f%%)", d.ComexPrice, d.ComexChangePct))
+	if d.ComexVolume != "" || d.ComexOI != "" {
+		parts := []string{}
 		if d.ComexVolume != "" {
-			sb.WriteString(fmt.Sprintf(", 成交量: %s", d.ComexVolume))
+			parts = append(parts, fmt.Sprintf("成交量: %s", d.ComexVolume))
 		}
 		if d.ComexOI != "" {
-			sb.WriteString(fmt.Sprintf(", 持仓量: %s", d.ComexOI))
+			parts = append(parts, fmt.Sprintf("持仓量: %s", d.ComexOI))
 		}
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("\n(COMEX黄金: %s)\n", strings.Join(parts, ", ")))
 	}
 
 	if len(d.Errors) > 0 {
@@ -472,50 +665,64 @@ func (d *GoldMacroData) FormatForPromptZh() string {
 	return sb.String()
 }
 
-// FormatForPromptEn formats macro data as a concise English prompt section.
-func (d *GoldMacroData) FormatForPromptEn() string {
+// FormatForPromptEn formats macro data as an English prompt section.
+func (d *MacroData) FormatForPromptEn() string {
 	if d == nil {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## Macro Data (Gold Key Drivers)\n")
+	sb.WriteString("## Macro Data\n\n")
 
-	indicators := []struct {
-		ind    MacroIndicator
-		note   string
-		format string
+	writeQuoteSectionEn(&sb, "### Commodities\n", []quoteWithNote{
+		{d.Gold, "safe haven core"},
+		{d.CrudeOil, "geopolitical/inflation proxy"},
+		{d.Silver, "precious metals correlation"},
+		{d.Copper, "economic health indicator"},
+	})
+
+	writeQuoteSectionEn(&sb, "### Financial Futures\n", []quoteWithNote{
+		{d.CMEBTC, "BTC futures premium/discount"},
+		{d.SP500, "risk appetite"},
+		{d.NASDAQ, "tech risk appetite"},
+	})
+
+	writeQuoteSectionEn(&sb, "### Risk Gauges\n", []quoteWithNote{
+		{d.VIX, ">25 bullish gold/BTC (fear)"},
+		{d.US10YYield, "yield up = gold cost up"},
+	})
+
+	hasIndicator := false
+	for _, item := range []struct {
+		ind  MacroIndicator
+		note string
 	}{
-		{d.DXY, "primary inverse correlator for gold", "%.2f"},
-		{d.US10YYield, "opportunity cost of holding gold", "%.3f%%"},
-		{d.VIX, "fear gauge (>25 bullish gold, <15 bearish)", "%.2f"},
-		{d.USDJPY, "safe-haven pair (decline = risk-off = gold bullish)", "%.2f"},
-		{d.SP500, "risk appetite (crash = flight to gold)", "%.2f"},
-		{d.NASDAQ, "tech risk appetite", "%.2f"},
+		{d.DXY, "inverse correlator for gold/BTC"},
+		{d.USDJPY, "safe-haven pair (down = risk-off)"},
+	} {
+		if item.ind.Available {
+			if !hasIndicator {
+				sb.WriteString("### Currency Indices\n")
+				hasIndicator = true
+			}
+			arrow := "↑"
+			if item.ind.ChangePct < 0 {
+				arrow = "↓"
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %.2f (%s%.2f%%) — %s\n",
+				item.ind.Name, item.ind.Value, arrow, abs(item.ind.ChangePct), item.note))
+		}
 	}
 
-	for _, item := range indicators {
-		if !item.ind.Available {
-			continue
-		}
-		arrow := "↑"
-		if item.ind.ChangePct < 0 {
-			arrow = "↓"
-		}
-		valStr := fmt.Sprintf(item.format, item.ind.Value)
-		sb.WriteString(fmt.Sprintf("- %s: %s (%s%.2f%%) — %s\n",
-			item.ind.Name, valStr, arrow, abs(item.ind.ChangePct), item.note))
-	}
-
-	if d.ComexAvailable {
-		sb.WriteString(fmt.Sprintf("- COMEX Gold Front Month: $%.1f (%.2f%%)", d.ComexPrice, d.ComexChangePct))
+	if d.ComexVolume != "" || d.ComexOI != "" {
+		parts := []string{}
 		if d.ComexVolume != "" {
-			sb.WriteString(fmt.Sprintf(", Volume: %s", d.ComexVolume))
+			parts = append(parts, fmt.Sprintf("Volume: %s", d.ComexVolume))
 		}
 		if d.ComexOI != "" {
-			sb.WriteString(fmt.Sprintf(", OI: %s", d.ComexOI))
+			parts = append(parts, fmt.Sprintf("OI: %s", d.ComexOI))
 		}
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("\n(COMEX Gold: %s)\n", strings.Join(parts, ", ")))
 	}
 
 	if len(d.Errors) > 0 {
@@ -524,6 +731,119 @@ func (d *GoldMacroData) FormatForPromptEn() string {
 	sb.WriteString("\n")
 
 	return sb.String()
+}
+
+// ============================================================================
+// Format Helpers
+// ============================================================================
+
+type quoteWithNote struct {
+	q    *CommodityQuote
+	note string
+}
+
+func writeQuoteSectionZh(sb *strings.Builder, header string, items []quoteWithNote) {
+	hasAny := false
+	for _, item := range items {
+		if item.q != nil && item.q.Available {
+			if !hasAny {
+				sb.WriteString(header)
+				hasAny = true
+			}
+			sb.WriteString(formatQuoteLineZh(item.q, item.note))
+		}
+	}
+}
+
+func writeQuoteSectionEn(sb *strings.Builder, header string, items []quoteWithNote) {
+	hasAny := false
+	for _, item := range items {
+		if item.q != nil && item.q.Available {
+			if !hasAny {
+				sb.WriteString(header)
+				hasAny = true
+			}
+			sb.WriteString(formatQuoteLineEn(item.q, item.note))
+		}
+	}
+}
+
+func formatQuoteLineZh(q *CommodityQuote, note string) string {
+	pf := autoPriceFmt(q.Current)
+	s := q.Suffix
+	arrow := "↑"
+	if q.ChangePct < 0 {
+		arrow = "↓"
+	}
+
+	parts := []string{
+		fmt.Sprintf("- %s: %s%s (%s%.2f%%)", q.Name, fmt.Sprintf(pf, q.Current), s, arrow, abs(q.ChangePct)),
+	}
+
+	if q.Open > 0 {
+		openPct := 0.0
+		if q.Open > 0 {
+			openPct = (q.Current - q.Open) / q.Open * 100
+		}
+		parts = append(parts, fmt.Sprintf("今开 %s%s (%+.2f%%)", fmt.Sprintf(pf, q.Open), s, openPct))
+	}
+
+	if q.High > 0 && q.Low > 0 {
+		parts = append(parts, fmt.Sprintf("区间 %s~%s%s (%.2f%%)",
+			fmt.Sprintf(pf, q.Low), fmt.Sprintf(pf, q.High), s, q.DayRange))
+	}
+
+	line := strings.Join(parts, " | ")
+	if note != "" {
+		line += " — " + note
+	}
+	return line + "\n"
+}
+
+func formatQuoteLineEn(q *CommodityQuote, note string) string {
+	pf := autoPriceFmt(q.Current)
+	s := q.Suffix
+	arrow := "↑"
+	if q.ChangePct < 0 {
+		arrow = "↓"
+	}
+
+	parts := []string{
+		fmt.Sprintf("- %s: %s%s (%s%.2f%%)", q.Name, fmt.Sprintf(pf, q.Current), s, arrow, abs(q.ChangePct)),
+	}
+
+	if q.Open > 0 {
+		openPct := 0.0
+		if q.Open > 0 {
+			openPct = (q.Current - q.Open) / q.Open * 100
+		}
+		parts = append(parts, fmt.Sprintf("Open %s%s (%+.2f%%)", fmt.Sprintf(pf, q.Open), s, openPct))
+	}
+
+	if q.High > 0 && q.Low > 0 {
+		parts = append(parts, fmt.Sprintf("Range %s~%s%s (%.2f%%)",
+			fmt.Sprintf(pf, q.Low), fmt.Sprintf(pf, q.High), s, q.DayRange))
+	}
+
+	line := strings.Join(parts, " | ")
+	if note != "" {
+		line += " — " + note
+	}
+	return line + "\n"
+}
+
+func autoPriceFmt(v float64) string {
+	absV := abs(v)
+	switch {
+	case absV >= 10000:
+		return "%.0f"
+	case absV >= 100:
+		return "%.2f"
+	case absV >= 10:
+		return "%.2f"
+	default:
+		return "%.3f"
+	}
 }
 
 func abs(x float64) float64 {

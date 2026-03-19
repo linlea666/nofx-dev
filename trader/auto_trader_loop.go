@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"nofx/kernel"
 	"nofx/logger"
+	"nofx/provider/macro"
 	"nofx/store"
 	"strings"
 	"time"
@@ -516,6 +517,14 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		if ctx.PriceRankingData != nil {
 			logger.Infof("📈 [%s] Price ranking data ready for %d durations",
 				at.name, len(ctx.PriceRankingData.Durations))
+		}
+	}
+
+	// 12. Get macro indicators (gold, oil, silver, copper, CME BTC, S&P500, NASDAQ, VIX, US10Y, DXY, USDJPY)
+	if strategyConfig.Indicators.EnableMacroData {
+		ctx.MacroData = macro.FetchMacroData()
+		if ctx.MacroData != nil {
+			logger.Infof("📊 [%s] Macro data loaded (%d errors)", at.name, len(ctx.MacroData.Errors))
 		}
 	}
 

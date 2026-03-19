@@ -89,8 +89,8 @@ type GridContext struct {
 	// Grid direction (neutral, long, short, long_bias, short_bias)
 	CurrentDirection string `json:"current_direction,omitempty"`
 
-	// Macro data for commodity/forex assets (gold, silver, etc.)
-	MacroData *macro.GoldMacroData `json:"macro_data,omitempty"`
+	// Macro data for commodity/forex assets
+	MacroData *macro.MacroData `json:"macro_data,omitempty"`
 
 	// Whether this is an xyz dex asset (gold, silver, forex, stocks)
 	IsXyzAsset bool `json:"is_xyz_asset,omitempty"`

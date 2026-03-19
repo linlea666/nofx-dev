@@ -512,11 +512,18 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	// For gold/commodity assets, fetch macro data and mark as xyz
 	if kernel.IsGoldAsset(gridConfig.Symbol) || kernel.IsXyzAsset(gridConfig.Symbol) {
 		ctx.IsXyzAsset = true
-		macroData := macro.FetchGoldMacro()
+		macroData := macro.FetchMacroData()
 		if macroData != nil {
 			ctx.MacroData = macroData
+			vixVal, us10yVal := 0.0, 0.0
+			if macroData.VIX != nil {
+				vixVal = macroData.VIX.Current
+			}
+			if macroData.US10YYield != nil {
+				us10yVal = macroData.US10YYield.Current
+			}
 			logger.Infof("📊 [Grid] Macro data loaded: DXY=%.2f VIX=%.2f US10Y=%.3f%% (errors: %d)",
-				macroData.DXY.Value, macroData.VIX.Value, macroData.US10YYield.Value, len(macroData.Errors))
+				macroData.DXY.Value, vixVal, us10yVal, len(macroData.Errors))
 		}
 	}
 

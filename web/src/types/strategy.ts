@@ -159,6 +159,9 @@ export interface IndicatorConfig {
   enable_price_ranking?: boolean;
   price_ranking_duration?: string;  // "1h", "4h", "24h" or "1h,4h,24h"
   price_ranking_limit?: number;
+
+  // 宏观指标（金/油/银/铜/CME BTC/标普/纳指/VIX/美债/美元/日元）
+  enable_macro_data?: boolean;
 }
 
 export interface KlineConfig {

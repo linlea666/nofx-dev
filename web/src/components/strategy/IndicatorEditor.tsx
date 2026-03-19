@@ -1,4 +1,4 @@
-import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key, Globe } from 'lucide-react'
 import type { IndicatorConfig } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 
@@ -640,7 +640,45 @@ export function IndicatorEditor({
       </div>
 
       {/* ============================================ */}
-      {/* Section 3: Market Sentiment                 */}
+      {/* Section 3: Macro Indicators                 */}
+      {/* ============================================ */}
+      <div className="rounded-lg overflow-hidden" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+        <div className="px-3 py-2 flex items-center gap-2" style={{ background: '#1E2329', borderBottom: '1px solid #2B3139' }}>
+          <Globe className="w-4 h-4" style={{ color: '#f59e0b' }} />
+          <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.macroDataTitle, language)}</span>
+          <span className="text-xs" style={{ color: '#848E9C' }}>- {ts(indicator.macroDataDesc, language)}</span>
+        </div>
+
+        <div className="p-3">
+          <div
+            className="p-2.5 rounded-lg transition-all cursor-pointer"
+            style={{
+              background: config.enable_macro_data ? 'rgba(245, 158, 11, 0.1)' : 'rgba(30, 35, 41, 0.5)',
+              border: config.enable_macro_data ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(43, 49, 57, 0.5)',
+              opacity: disabled ? 0.5 : 1,
+            }}
+            onClick={() => !disabled && onChange({ ...config, enable_macro_data: !config.enable_macro_data })}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full" style={{ background: '#f59e0b' }} />
+                <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.macroData, language)}</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={config.enable_macro_data || false}
+                onChange={(e) => { e.stopPropagation(); !disabled && onChange({ ...config, enable_macro_data: e.target.checked }) }}
+                disabled={disabled}
+                className="w-4 h-4 rounded accent-yellow-500"
+              />
+            </div>
+            <p className="text-[10px] mt-1" style={{ color: '#5E6673' }}>{ts(indicator.macroDataNote, language)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================ */}
+      {/* Section 4: Market Sentiment                 */}
       {/* ============================================ */}
       <div className="rounded-lg overflow-hidden" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
         <div className="px-3 py-2 flex items-center gap-2" style={{ background: '#1E2329', borderBottom: '1px solid #2B3139' }}>
