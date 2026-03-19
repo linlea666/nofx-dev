@@ -85,7 +85,7 @@ var (
 	cachedAt    time.Time
 	cacheMu     sync.RWMutex
 	cacheTTL    = 5 * time.Minute
-	httpClient  = &http.Client{Timeout: 10 * time.Second}
+	httpClient  = &http.Client{Timeout: 15 * time.Second}
 )
 
 // FetchMacroData returns cached macro data or fetches fresh data if cache expired.
@@ -186,7 +186,7 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 		codes[i] = inst.code
 	}
 
-	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
+	url := "http://w.sinajs.cn/?list=" + strings.Join(codes, ",")
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		addError(fmt.Sprintf("sina futures: %v", err))
