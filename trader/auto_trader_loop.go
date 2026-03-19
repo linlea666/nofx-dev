@@ -333,6 +333,10 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		at.peakPnLCacheMutex.RLock()
 		peakPnlPct := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
+		if peakPnlPct < pnlPct {
+			peakPnlPct = pnlPct
+			at.UpdatePeakPnL(symbol, side, pnlPct)
+		}
 
 		positionInfos = append(positionInfos, kernel.PositionInfo{
 			Symbol:           symbol,

@@ -98,7 +98,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("  置信度评分指南:\n")
 		sb.WriteString("  90+: 多时间框架趋势一致 + 宏观面利好 + 量能/OI确认\n")
 		sb.WriteString("  80-89: ≥2个时间框架技术信号清晰 + 宏观面中性\n")
-		if minConf < 75 {
+		if minConf < 70 {
 			sb.WriteString("  70-79: 单时间框架信号 + 部分矛盾因素\n")
 			sb.WriteString(fmt.Sprintf("  %d-69: 动量信号明确但缺乏多框架确认 — 轻仓试探\n", minConf))
 		} else {
@@ -109,7 +109,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("  Confidence scoring guide:\n")
 		sb.WriteString("  90+: Multi-timeframe trend alignment + macro favorable + volume/OI confirmation\n")
 		sb.WriteString("  80-89: Clear technical signal on ≥2 timeframes + neutral macro\n")
-		if minConf < 75 {
+		if minConf < 70 {
 			sb.WriteString("  70-79: Single timeframe signal with partial conflicting factors\n")
 			sb.WriteString(fmt.Sprintf("  %d-69: Clear momentum signal but lacks multi-timeframe confirmation — light position\n", minConf))
 		} else {
@@ -122,7 +122,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("## Position Sizing Guidance\n")
 	sb.WriteString("Calculate `position_size_usd` based on your confidence and the Position Value Limits above:\n")
 	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
-	if minConf < 75 {
+	if minConf < 70 {
 		sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
 		sb.WriteString(fmt.Sprintf("- Low confidence (%d-69): Use 30-50%% of max position value limit (light probe)\n", minConf))
 	} else {
@@ -181,8 +181,12 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("```json\n[\n")
 	// Use the actual configured position value ratio for BTC/ETH in the example
 	examplePositionSize := accountEquity * btcEthPosValueRatio
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300},\n",
-		riskControl.BTCETHMaxLeverage, examplePositionSize))
+	exampleRiskUsd := accountEquity * 0.03
+	if exampleRiskUsd < 0.5 {
+		exampleRiskUsd = 0.5
+	}
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": %.2f},\n",
+		riskControl.BTCETHMaxLeverage, examplePositionSize, exampleRiskUsd))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\"}\n")
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
@@ -384,10 +388,10 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 
 	// Historical trading statistics (helps AI understand past performance)
 	if ctx.TradingStats != nil && ctx.TradingStats.TotalTrades > 0 {
-		// Get language from strategy config
 		lang := e.GetLanguage()
+		totalTrades := ctx.TradingStats.TotalTrades
+		insufficientData := totalTrades < 5
 
-		// Win/Loss ratio
 		var winLossRatio float64
 		if ctx.TradingStats.AvgLoss > 0 {
 			winLossRatio = ctx.TradingStats.AvgWin / ctx.TradingStats.AvgLoss
@@ -395,49 +399,47 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 
 		if lang == LangChinese {
 			sb.WriteString("## 历史交易统计\n")
-			sb.WriteString(fmt.Sprintf("总交易: %d 笔 | 盈利因子: %.2f | 夏普比率: %.2f | 盈亏比: %.2f\n",
-				ctx.TradingStats.TotalTrades,
-				ctx.TradingStats.ProfitFactor,
-				ctx.TradingStats.SharpeRatio,
-				winLossRatio))
-			sb.WriteString(fmt.Sprintf("总盈亏: %+.2f USDT | 平均盈利: +%.2f | 平均亏损: -%.2f | 最大回撤: %.1f%%\n",
-				ctx.TradingStats.TotalPnL,
-				ctx.TradingStats.AvgWin,
-				ctx.TradingStats.AvgLoss,
-				ctx.TradingStats.MaxDrawdownPct))
-
-			// Performance hints based on profit factor, sharpe, and drawdown
-			if ctx.TradingStats.ProfitFactor >= 1.5 && ctx.TradingStats.SharpeRatio >= 1 {
-				sb.WriteString("表现: 良好 - 保持当前策略\n")
-			} else if ctx.TradingStats.ProfitFactor < 1 {
-				sb.WriteString("表现: 需改进 - 提高盈亏比，优化止盈止损\n")
-			} else if ctx.TradingStats.MaxDrawdownPct > 30 {
-				sb.WriteString("表现: 风险偏高 - 减少仓位，控制回撤\n")
+			if insufficientData {
+				sb.WriteString(fmt.Sprintf("总交易: %d 笔（样本量不足，统计指标仅供参考）\n", totalTrades))
+				sb.WriteString(fmt.Sprintf("总盈亏: %+.2f USDT | 平均盈利: +%.2f | 平均亏损: -%.2f\n",
+					ctx.TradingStats.TotalPnL, ctx.TradingStats.AvgWin, ctx.TradingStats.AvgLoss))
+				sb.WriteString("表现: 数据不足 - 样本量<5笔，无法可靠评估，正常交易即可\n")
 			} else {
-				sb.WriteString("表现: 正常 - 有优化空间\n")
+				sb.WriteString(fmt.Sprintf("总交易: %d 笔 | 盈利因子: %.2f | 夏普比率: %.2f | 盈亏比: %.2f\n",
+					totalTrades, ctx.TradingStats.ProfitFactor, ctx.TradingStats.SharpeRatio, winLossRatio))
+				sb.WriteString(fmt.Sprintf("总盈亏: %+.2f USDT | 平均盈利: +%.2f | 平均亏损: -%.2f | 最大回撤: %.1f%%\n",
+					ctx.TradingStats.TotalPnL, ctx.TradingStats.AvgWin, ctx.TradingStats.AvgLoss, ctx.TradingStats.MaxDrawdownPct))
+				if ctx.TradingStats.ProfitFactor >= 1.5 && ctx.TradingStats.SharpeRatio >= 1 {
+					sb.WriteString("表现: 良好 - 保持当前策略\n")
+				} else if ctx.TradingStats.ProfitFactor < 1 {
+					sb.WriteString("表现: 需改进 - 提高盈亏比，优化止盈止损\n")
+				} else if ctx.TradingStats.MaxDrawdownPct > 30 {
+					sb.WriteString("表现: 风险偏高 - 减少仓位，控制回撤\n")
+				} else {
+					sb.WriteString("表现: 正常 - 有优化空间\n")
+				}
 			}
 		} else {
 			sb.WriteString("## Historical Trading Statistics\n")
-			sb.WriteString(fmt.Sprintf("Total Trades: %d | Profit Factor: %.2f | Sharpe: %.2f | Win/Loss Ratio: %.2f\n",
-				ctx.TradingStats.TotalTrades,
-				ctx.TradingStats.ProfitFactor,
-				ctx.TradingStats.SharpeRatio,
-				winLossRatio))
-			sb.WriteString(fmt.Sprintf("Total PnL: %+.2f USDT | Avg Win: +%.2f | Avg Loss: -%.2f | Max Drawdown: %.1f%%\n",
-				ctx.TradingStats.TotalPnL,
-				ctx.TradingStats.AvgWin,
-				ctx.TradingStats.AvgLoss,
-				ctx.TradingStats.MaxDrawdownPct))
-
-			// Performance hints based on profit factor, sharpe, and drawdown
-			if ctx.TradingStats.ProfitFactor >= 1.5 && ctx.TradingStats.SharpeRatio >= 1 {
-				sb.WriteString("Performance: GOOD - maintain current strategy\n")
-			} else if ctx.TradingStats.ProfitFactor < 1 {
-				sb.WriteString("Performance: NEEDS IMPROVEMENT - improve win/loss ratio, optimize TP/SL\n")
-			} else if ctx.TradingStats.MaxDrawdownPct > 30 {
-				sb.WriteString("Performance: HIGH RISK - reduce position size, control drawdown\n")
+			if insufficientData {
+				sb.WriteString(fmt.Sprintf("Total Trades: %d (insufficient sample, stats are for reference only)\n", totalTrades))
+				sb.WriteString(fmt.Sprintf("Total PnL: %+.2f USDT | Avg Win: +%.2f | Avg Loss: -%.2f\n",
+					ctx.TradingStats.TotalPnL, ctx.TradingStats.AvgWin, ctx.TradingStats.AvgLoss))
+				sb.WriteString("Performance: INSUFFICIENT DATA - <5 trades, cannot reliably evaluate, trade normally\n")
 			} else {
-				sb.WriteString("Performance: NORMAL - room for optimization\n")
+				sb.WriteString(fmt.Sprintf("Total Trades: %d | Profit Factor: %.2f | Sharpe: %.2f | Win/Loss Ratio: %.2f\n",
+					totalTrades, ctx.TradingStats.ProfitFactor, ctx.TradingStats.SharpeRatio, winLossRatio))
+				sb.WriteString(fmt.Sprintf("Total PnL: %+.2f USDT | Avg Win: +%.2f | Avg Loss: -%.2f | Max Drawdown: %.1f%%\n",
+					ctx.TradingStats.TotalPnL, ctx.TradingStats.AvgWin, ctx.TradingStats.AvgLoss, ctx.TradingStats.MaxDrawdownPct))
+				if ctx.TradingStats.ProfitFactor >= 1.5 && ctx.TradingStats.SharpeRatio >= 1 {
+					sb.WriteString("Performance: GOOD - maintain current strategy\n")
+				} else if ctx.TradingStats.ProfitFactor < 1 {
+					sb.WriteString("Performance: NEEDS IMPROVEMENT - improve win/loss ratio, optimize TP/SL\n")
+				} else if ctx.TradingStats.MaxDrawdownPct > 30 {
+					sb.WriteString("Performance: HIGH RISK - reduce position size, control drawdown\n")
+				} else {
+					sb.WriteString("Performance: NORMAL - room for optimization\n")
+				}
 			}
 		}
 		sb.WriteString("\n")
