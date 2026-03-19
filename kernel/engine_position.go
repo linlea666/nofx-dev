@@ -109,6 +109,17 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥3.0:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
+
+		// Single-trade risk cap: max 10% of equity
+		actualRiskUsd := d.PositionSizeUSD * float64(d.Leverage) * riskPercent / 100
+		maxRiskUsd := accountEquity * 0.10
+		if maxRiskUsd < 0.5 {
+			maxRiskUsd = 0.5
+		}
+		if actualRiskUsd > maxRiskUsd {
+			return fmt.Errorf("single trade risk too high: %.2f USDT (%.1f%% of equity), max allowed: %.2f USDT (10%%). Reduce position_size_usd, leverage, or tighten stop_loss",
+				actualRiskUsd, actualRiskUsd/accountEquity*100, maxRiskUsd)
+		}
 	}
 
 	return nil

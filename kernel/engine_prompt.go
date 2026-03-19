@@ -133,6 +133,22 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
 
+	// Risk verification (mandatory)
+	maxSingleRiskPct := 0.10
+	maxRiskUsd := accountEquity * maxSingleRiskPct
+	if maxRiskUsd < 0.5 {
+		maxRiskUsd = 0.5
+	}
+	sb.WriteString("## ⚠️ Risk Verification (MANDATORY before output)\n")
+	sb.WriteString("For every open position, calculate `risk_usd` using this exact formula:\n")
+	sb.WriteString("```\n")
+	sb.WriteString("risk_usd = position_size_usd × leverage × abs(entry_price - stop_loss) / entry_price\n")
+	sb.WriteString("```\n")
+	sb.WriteString(fmt.Sprintf("**CODE ENFORCED**: risk_usd must be ≤ **%.2f USDT** (= equity %.0f × %.0f%% max single-trade risk)\n",
+		maxRiskUsd, accountEquity, maxSingleRiskPct*100))
+	sb.WriteString("If exceeded → reduce position_size_usd, lower leverage, or tighten stop_loss. Backend REJECTS trades that exceed this.\n")
+	sb.WriteString("⚠️ Common LLM arithmetic error: verify your multiplication step by step. (e.g. 0.013 × 370 = 4.81, NOT 0.48)\n\n")
+
 	// 4. Trading frequency (editable)
 	if promptSections.TradingFrequency != "" {
 		sb.WriteString(promptSections.TradingFrequency)
