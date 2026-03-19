@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"math"
 	"nofx/market"
 	"nofx/provider/nofxos"
 	"nofx/store"
@@ -750,39 +751,13 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 		}
 	}
 
-	if indicators.EnableEMA {
-		if len(data.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
-		}
-		if len(data.EMA50Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
-		}
+	var currentPrice float64
+	if len(data.Klines) > 0 {
+		currentPrice = data.Klines[len(data.Klines)-1].Close
+	} else if len(data.MidPrices) > 0 {
+		currentPrice = data.MidPrices[len(data.MidPrices)-1]
 	}
-
-	if indicators.EnableMACD && len(data.MACDValues) > 0 {
-		sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
-	}
-
-	if indicators.EnableRSI {
-		if len(data.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
-		}
-		if len(data.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
-		}
-	}
-
-	if indicators.EnableATR && data.ATR14 > 0 {
-		sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
-	}
-
-	if indicators.EnableBOLL && len(data.BOLLUpper) > 0 {
-		sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
-		sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
-		sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
-	}
-
-	sb.WriteString("\n")
+	writeIndicatorSummary(sb, data, indicators, currentPrice)
 }
 
 func (e *StrategyEngine) formatQuantData(data *QuantData) string {
@@ -895,4 +870,214 @@ func formatFloatSlice(values []float64) string {
 		strValues[i] = fmt.Sprintf("%.4f", v)
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// ============================================================================
+// Indicator Summary (replaces raw arrays with pre-analyzed compact output)
+// ============================================================================
+
+func writeIndicatorSummary(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig, currentPrice float64) {
+	hasIndicator := false
+
+	if indicators.EnableEMA && len(data.EMA20Values) > 0 {
+		hasIndicator = true
+		ema20 := sliceLast(data.EMA20Values)
+		ema20Dir := sliceTrend(data.EMA20Values)
+		if len(data.EMA50Values) > 0 {
+			ema50 := sliceLast(data.EMA50Values)
+			ema50Dir := sliceTrend(data.EMA50Values)
+			relation := "多头排列"
+			if ema20 < ema50 {
+				relation = "空头排列"
+			}
+			deviation := 0.0
+			if ema50 != 0 {
+				deviation = (ema20 - ema50) / ema50 * 100
+			}
+			sb.WriteString(fmt.Sprintf("EMA: 20=%.2f(%s) vs 50=%.2f(%s) → %s(偏离%+.2f%%)\n",
+				ema20, ema20Dir, ema50, ema50Dir, relation, deviation))
+		} else {
+			sb.WriteString(fmt.Sprintf("EMA20: %.2f(%s)\n", ema20, ema20Dir))
+		}
+	}
+
+	if indicators.EnableMACD && len(data.MACDValues) > 0 {
+		hasIndicator = true
+		macdVal := sliceLast(data.MACDValues)
+		macdDir := sliceTrend(data.MACDValues)
+		momentum := macdMomentumLabel(macdVal, macdDir)
+		recent := sliceLastN(data.MACDValues, 3)
+		sb.WriteString(fmt.Sprintf("MACD: %.2f(%s) → %s | 近3值: %s\n",
+			macdVal, macdDir, momentum, formatCompactFloats(recent)))
+	}
+
+	if indicators.EnableRSI {
+		parts := []string{}
+		if len(data.RSI7Values) > 0 {
+			rsi7 := sliceLast(data.RSI7Values)
+			recent7 := sliceLastN(data.RSI7Values, 3)
+			parts = append(parts, fmt.Sprintf("7期=%.1f(%s) 近3值:%s", rsi7, rsiZoneLabel(rsi7), formatCompactFloats(recent7)))
+		}
+		if len(data.RSI14Values) > 0 {
+			rsi14 := sliceLast(data.RSI14Values)
+			recent14 := sliceLastN(data.RSI14Values, 3)
+			parts = append(parts, fmt.Sprintf("14期=%.1f(%s) 近3值:%s", rsi14, rsiZoneLabel(rsi14), formatCompactFloats(recent14)))
+		}
+		if len(parts) > 0 {
+			hasIndicator = true
+			sb.WriteString(fmt.Sprintf("RSI: %s\n", strings.Join(parts, " | ")))
+		}
+	}
+
+	if indicators.EnableBOLL && len(data.BOLLUpper) > 0 && len(data.BOLLMiddle) > 0 && len(data.BOLLLower) > 0 {
+		hasIndicator = true
+		upper := sliceLast(data.BOLLUpper)
+		middle := sliceLast(data.BOLLMiddle)
+		lower := sliceLast(data.BOLLLower)
+		bandwidth := 0.0
+		if middle > 0 {
+			bandwidth = (upper - lower) / middle * 100
+		}
+		pos := bollPositionLabel(currentPrice, upper, middle, lower)
+		bwTrend := bollBandwidthTrend(data.BOLLUpper, data.BOLLLower, data.BOLLMiddle)
+		sb.WriteString(fmt.Sprintf("BOLL(20): 上=%.2f 中=%.2f 下=%.2f → %s | 带宽=%.2f%%%s\n",
+			upper, middle, lower, pos, bandwidth, bwTrend))
+	}
+
+	if indicators.EnableATR && data.ATR14 > 0 {
+		hasIndicator = true
+		sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+	}
+
+	if hasIndicator {
+		sb.WriteString("\n")
+	}
+}
+
+func sliceLast(s []float64) float64 {
+	if len(s) == 0 {
+		return 0
+	}
+	return s[len(s)-1]
+}
+
+func sliceTrend(values []float64) string {
+	if len(values) < 2 {
+		return "→"
+	}
+	lookback := 5
+	if len(values) < lookback+1 {
+		lookback = len(values) - 1
+	}
+	last := values[len(values)-1]
+	prev := values[len(values)-1-lookback]
+	threshold := math.Abs(prev) * 0.001
+	if last-prev > threshold {
+		return "↑"
+	}
+	if prev-last > threshold {
+		return "↓"
+	}
+	return "→"
+}
+
+func sliceLastN(s []float64, n int) []float64 {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}
+
+func macdMomentumLabel(macd float64, dir string) string {
+	if macd > 0 {
+		if dir == "↑" {
+			return "多头动能增强"
+		}
+		return "多头动能减弱"
+	}
+	if dir == "↓" {
+		return "空头动能增强"
+	}
+	return "空头动能减弱"
+}
+
+func rsiZoneLabel(rsi float64) string {
+	switch {
+	case rsi >= 80:
+		return "极度超买"
+	case rsi >= 70:
+		return "超买"
+	case rsi >= 60:
+		return "偏多"
+	case rsi >= 40:
+		return "中性"
+	case rsi >= 30:
+		return "偏空"
+	case rsi >= 20:
+		return "超卖"
+	default:
+		return "极度超卖"
+	}
+}
+
+func bollPositionLabel(price, upper, middle, lower float64) string {
+	if price == 0 {
+		return "N/A"
+	}
+	if price >= upper {
+		return "突破上轨"
+	}
+	if price <= lower {
+		return "跌破下轨"
+	}
+	bandWidth := upper - lower
+	if bandWidth <= 0 {
+		return "中轨"
+	}
+	pos := (price - lower) / bandWidth
+	switch {
+	case pos >= 0.85:
+		return "接近上轨"
+	case pos >= 0.6:
+		return "中轨上方"
+	case pos >= 0.4:
+		return "中轨附近"
+	case pos >= 0.15:
+		return "中轨下方"
+	default:
+		return "接近下轨"
+	}
+}
+
+func bollBandwidthTrend(upper, lower, middle []float64) string {
+	if len(upper) < 6 || len(lower) < 6 || len(middle) < 6 {
+		return ""
+	}
+	calcBW := func(i int) float64 {
+		if middle[i] == 0 {
+			return 0
+		}
+		return (upper[i] - lower[i]) / middle[i]
+	}
+	current := calcBW(len(upper) - 1)
+	prev := calcBW(len(upper) - 6)
+	if prev == 0 {
+		return ""
+	}
+	change := (current - prev) / prev
+	if change > 0.05 {
+		return "(扩张↑)"
+	}
+	if change < -0.05 {
+		return "(收窄↓)"
+	}
+	return "(平稳→)"
+}
+
+func formatCompactFloats(values []float64) string {
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = fmt.Sprintf("%.2f", v)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }

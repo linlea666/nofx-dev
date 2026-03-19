@@ -186,7 +186,7 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 		codes[i] = inst.code
 	}
 
-	url := "http://w.sinajs.cn/?list=" + strings.Join(codes, ",")
+	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		addError(fmt.Sprintf("sina futures: %v", err))
@@ -194,7 +194,12 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 	}
 	req.Header.Set("Host", "w.sinajs.cn")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://gu.sina.cn/")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	req.Header.Set("Referer", "https://gu.sina.cn/ft/hq/hf.php?symbol=XAU")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-Mode", "no-cors")
+	req.Header.Set("Sec-Fetch-Dest", "script")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
