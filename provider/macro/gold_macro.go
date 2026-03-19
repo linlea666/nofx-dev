@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -86,6 +87,15 @@ var (
 	cacheMu     sync.RWMutex
 	cacheTTL    = 5 * time.Minute
 	httpClient  = &http.Client{Timeout: 15 * time.Second}
+
+	// Sina HTTPS has slow TLS handshake from overseas servers (~60s+).
+	// Uses independent cache with background refresh to avoid blocking decision cycles.
+	sinaClient     = &http.Client{Timeout: 90 * time.Second}
+	sinaCached     *MacroData
+	sinaErrors     []string
+	sinaCacheMu    sync.RWMutex
+	sinaCacheAt    time.Time
+	sinaRefreshing int32
 )
 
 // FetchMacroData returns cached macro data or fetches fresh data if cache expired.
@@ -114,12 +124,14 @@ func FetchMacroData() *MacroData {
 		mu.Unlock()
 	}
 
-	wg.Add(4)
-	go func() { defer wg.Done(); fetchSinaFutures(data, addError) }()
+	wg.Add(3)
 	go func() { defer wg.Done(); fetchFromIfnews(data, addError) }()
 	go func() { defer wg.Done(); fetchUS10YFromSina(data, addError) }()
 	go func() { defer wg.Done(); fetchCOMEXFromCME(data, addError) }()
+
+	refreshSinaBackground()
 	wg.Wait()
+	applySinaCache(data, addError)
 
 	available := 0
 	total := 0
@@ -159,6 +171,73 @@ func FetchGoldMacro() *GoldMacroData {
 }
 
 // ============================================================================
+// Sina Background Refresh (non-blocking)
+// ============================================================================
+
+func refreshSinaBackground() {
+	sinaCacheMu.RLock()
+	fresh := sinaCached != nil && time.Since(sinaCacheAt) < cacheTTL
+	sinaCacheMu.RUnlock()
+	if fresh {
+		return
+	}
+
+	if !atomic.CompareAndSwapInt32(&sinaRefreshing, 0, 1) {
+		return
+	}
+
+	go func() {
+		defer atomic.StoreInt32(&sinaRefreshing, 0)
+
+		tmpData := &MacroData{}
+		var errs []string
+		var mu sync.Mutex
+		addErr := func(msg string) {
+			mu.Lock()
+			errs = append(errs, msg)
+			mu.Unlock()
+		}
+
+		fetchSinaFutures(tmpData, addErr)
+
+		sinaCacheMu.Lock()
+		sinaCached = tmpData
+		sinaErrors = errs
+		sinaCacheAt = time.Now()
+		sinaCacheMu.Unlock()
+
+		if len(errs) > 0 {
+			logger.Infof("⚠️ [Sina] Background refresh failed: %s", strings.Join(errs, "; "))
+		} else {
+			logger.Infof("✅ [Sina] Background refresh successful (8 instruments)")
+		}
+	}()
+}
+
+func applySinaCache(data *MacroData, addError func(string)) {
+	sinaCacheMu.RLock()
+	defer sinaCacheMu.RUnlock()
+
+	if sinaCached == nil {
+		addError("sina futures: initial fetch in progress")
+		return
+	}
+
+	data.Gold = sinaCached.Gold
+	data.CrudeOil = sinaCached.CrudeOil
+	data.Silver = sinaCached.Silver
+	data.Copper = sinaCached.Copper
+	data.CMEBTC = sinaCached.CMEBTC
+	data.SP500 = sinaCached.SP500
+	data.NASDAQ = sinaCached.NASDAQ
+	data.VIX = sinaCached.VIX
+
+	for _, e := range sinaErrors {
+		addError(e)
+	}
+}
+
+// ============================================================================
 // Sina hf_ Futures Batch API (8 instruments, 1 HTTP request)
 // ============================================================================
 
@@ -186,7 +265,7 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 		codes[i] = inst.code
 	}
 
-	url := "http://w.sinajs.cn/?list=" + strings.Join(codes, ",")
+	url := "https://w.sinajs.cn/?list=" + strings.Join(codes, ",")
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		addError(fmt.Sprintf("sina futures: %v", err))
@@ -201,7 +280,7 @@ func fetchSinaFutures(data *MacroData, addError func(string)) {
 	req.Header.Set("Sec-Fetch-Mode", "no-cors")
 	req.Header.Set("Sec-Fetch-Dest", "script")
 
-	resp, err := httpClient.Do(req)
+	resp, err := sinaClient.Do(req)
 	if err != nil {
 		addError(fmt.Sprintf("sina futures: %v", err))
 		return
