@@ -154,11 +154,11 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString(promptSections.TradingFrequency)
 		sb.WriteString("\n\n")
 	} else {
-		sb.WriteString("# ⏱️ Trading Frequency Awareness\n\n")
-		sb.WriteString("- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour\n")
-		sb.WriteString("- >2 trades/hour = Overtrading\n")
-		sb.WriteString("- Single position hold time ≥ 30-60 minutes\n")
-		sb.WriteString("If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.\n\n")
+		sb.WriteString("# ⏱️ Trade Quality Over Quantity\n\n")
+		sb.WriteString("- No hard frequency limits — trade as many times as genuine high-quality opportunities arise\n")
+		sb.WriteString("- But every trade MUST pass the Three Entry Gates below (trend + key level + volume)\n")
+		sb.WriteString("- Self-check: if most recent trades held <15 min, your entry quality is likely too low\n")
+		sb.WriteString("- Self-check: if average win ≈ average loss, you are closing winners too early\n\n")
 	}
 
 	// 5. Entry standards (editable)
@@ -176,14 +176,44 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 
 	// 5.5 Trade Quality Control (anti-whipsaw, entry quality, loss pattern awareness)
 	if lang == LangChinese {
-		sb.WriteString("# 🛡️ 交易质量控制（防打脸机制）\n\n")
+		sb.WriteString("# 🛡️ 交易质量控制\n\n")
 
-		sb.WriteString("## 入场位置要求\n")
-		sb.WriteString("仅凭指标信号（如 RSI 超卖）不构成开仓理由，还必须确认价格位置：\n")
-		sb.WriteString("- 做多：价格须在关键支撑附近（布林下轨、EMA 支撑、近期摆动低点）\n")
-		sb.WriteString("- 做空：价格须在关键阻力附近（布林上轨、EMA 阻力、近期摆动高点）\n")
-		sb.WriteString("- 价格在布林中轨附近 = 无人区，除非有极强趋势信号否则不开仓\n")
-		sb.WriteString("- 禁止追涨杀跌：价格已朝你方向大幅运动 → 入场窗口已过，等回踩\n\n")
+		sb.WriteString("## 🚪 入场三道门（全部通过才能开仓）\n\n")
+
+		sb.WriteString("### 第一道门：趋势对齐\n")
+		sb.WriteString("- 4H 和 1H 的 EMA 排列方向必须一致（同为多头排列或同为空头排列）\n")
+		sb.WriteString("- 方向矛盾 → 直接 wait，无论其他信号多强\n")
+		sb.WriteString("- 逆 4H 趋势交易：置信度额外扣 20 分（扣后仍需 ≥ 最低门槛才可入场，需极强理由）\n\n")
+
+		sb.WriteString("### 第二道门：关键位确认\n")
+		sb.WriteString("- 做多：价格须在布林下轨附近（± ATR×0.5），或回踩 EMA20/EMA50 支撑，或近期摆动低点\n")
+		sb.WriteString("- 做空：价格须在布林上轨附近（± ATR×0.5），或回踩 EMA20/EMA50 阻力，或近期摆动高点\n")
+		sb.WriteString("- 布林中轨附近（± ATR×0.3）= 无人区，不开仓\n")
+		sb.WriteString("- 价格已朝你方向运动超过 1.5×ATR → 入场窗口已过，等回踩\n\n")
+
+		sb.WriteString("### 第三道门：量价/资金确认\n")
+		sb.WriteString("至少满足以下一条：\n")
+		sb.WriteString("- OI 增加 + 价格向交易方向运动（资金流入方向一致）\n")
+		sb.WriteString("- 1h 机构资金净流入方向与交易方向一致\n")
+		sb.WriteString("- 成交量突破（Volume > 近 5 根均量 × 1.5）\n")
+		sb.WriteString("⚠️ 纯技术指标信号（RSI 超卖、MACD 金叉等）若无量价配合 → 不构成开仓理由\n\n")
+
+		sb.WriteString("## 📤 出场决策树\n\n")
+
+		sb.WriteString("### 盈利持仓 — 默认动作是 hold\n")
+		sb.WriteString("只有满足以下条件之一才可主动平仓：\n")
+		sb.WriteString("1. 止盈价已触及\n")
+		sb.WriteString("2. 追踪止盈：浮盈从峰值回撤 ≥ 50%（如峰值 +6%，回撤至 +3%）\n")
+		sb.WriteString("3. 趋势破坏：1H EMA20 向反方向穿越 EMA50\n")
+		sb.WriteString("4. 反转信号：≥2 个高权重信号指向持仓反方向\n\n")
+
+		sb.WriteString("以下不是平仓理由：\n")
+		sb.WriteString("- \"5M/15M 指标出现反向波动\" → 噪音\n")
+		sb.WriteString("- \"可能要回调\" → 猜测，用移动止损保护，不要主动平仓\n")
+		sb.WriteString("- \"已经赚了一点利润想保住\" → 移动止损到成本位，继续持有\n\n")
+
+		sb.WriteString("### 亏损持仓\n")
+		sb.WriteString("止损触发 → 立即执行，零犹豫，不移动止损\n\n")
 
 		sb.WriteString("## 反转冷却（软约束）\n")
 		sb.WriteString("刚平仓亏损后在同一币种上反向开仓 = 高风险操作。不禁止，但需满足：\n")
@@ -199,20 +229,52 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("## 置信度扣分表（与正面评分叠加）\n")
 		sb.WriteString("| 情况 | 扣分 |\n")
 		sb.WriteString("|------|------|\n")
+		sb.WriteString("| 4H 与 1H 趋势方向矛盾（逆势交易） | -20 |\n")
 		sb.WriteString("| 同币种平仓亏损后反向开仓 | -15 |\n")
+		sb.WriteString("| 震荡市中非区间边缘入场 | -15 |\n")
 		sb.WriteString("| 近 3 笔同币种交易 ≥2 笔亏损 | -10 |\n")
-		sb.WriteString("| 价格在布林中轨附近（非关键位） | -10 |\n")
+		sb.WriteString("| 价格在布林中轨附近（无人区） | -10 |\n")
 		sb.WriteString("| 仅单一时间框架信号 | -10 |\n")
-		sb.WriteString("| 震荡市中非区间边缘入场 | -15 |\n\n")
+		sb.WriteString("| 无量价/资金流确认（纯技术指标） | -10 |\n\n")
 	} else {
-		sb.WriteString("# 🛡️ Trade Quality Control (Anti-Whipsaw)\n\n")
+		sb.WriteString("# 🛡️ Trade Quality Control\n\n")
 
-		sb.WriteString("## Entry Position Requirement\n")
-		sb.WriteString("Indicator signals alone (e.g. RSI oversold) are NOT sufficient to open. Confirm price position:\n")
-		sb.WriteString("- Long: price must be near key support (BOLL lower band, EMA support, recent swing low)\n")
-		sb.WriteString("- Short: price must be near key resistance (BOLL upper band, EMA resistance, recent swing high)\n")
-		sb.WriteString("- Price near BOLL middle band = no-man's land — do NOT open unless very strong trend signal\n")
-		sb.WriteString("- No chasing: if price already moved significantly in your direction → entry window passed, wait for pullback\n\n")
+		sb.WriteString("## 🚪 Three Entry Gates (ALL must pass to open)\n\n")
+
+		sb.WriteString("### Gate 1: Trend Alignment\n")
+		sb.WriteString("- 4H and 1H EMA arrangement must agree (both bullish or both bearish)\n")
+		sb.WriteString("- If contradicting → wait, no matter how strong other signals are\n")
+		sb.WriteString("- Counter-4H-trend trades: confidence penalty -20 (must still meet min threshold with strong justification)\n\n")
+
+		sb.WriteString("### Gate 2: Key Level Confirmation\n")
+		sb.WriteString("- Long: price must be near BOLL lower band (± ATR×0.5), or pullback to EMA20/EMA50 support, or recent swing low\n")
+		sb.WriteString("- Short: price must be near BOLL upper band (± ATR×0.5), or pullback to EMA20/EMA50 resistance, or recent swing high\n")
+		sb.WriteString("- BOLL mid-band area (± ATR×0.3) = no-man's land, do NOT open\n")
+		sb.WriteString("- Price already moved >1.5×ATR in your direction → entry window passed, wait for pullback\n\n")
+
+		sb.WriteString("### Gate 3: Volume / Flow Confirmation\n")
+		sb.WriteString("At least ONE of the following:\n")
+		sb.WriteString("- OI increasing + price moving in trade direction (aligned fund inflow)\n")
+		sb.WriteString("- 1h institutional net flow direction aligns with trade direction\n")
+		sb.WriteString("- Volume breakout (Volume > 1.5× average of last 5 bars)\n")
+		sb.WriteString("⚠️ Pure technical signals (RSI oversold, MACD cross) WITHOUT volume/flow confirmation → NOT sufficient to open\n\n")
+
+		sb.WriteString("## 📤 Exit Decision Tree\n\n")
+
+		sb.WriteString("### Profitable Positions — default action is hold\n")
+		sb.WriteString("Only close when ONE of these conditions is met:\n")
+		sb.WriteString("1. Take-profit price reached\n")
+		sb.WriteString("2. Trailing exit: unrealized PnL retraced ≥50% from peak (e.g. peak +6%, now +3%)\n")
+		sb.WriteString("3. Trend broken: 1H EMA20 crosses EMA50 against position direction\n")
+		sb.WriteString("4. Reversal signals: ≥2 high-weight signals pointing against position\n\n")
+
+		sb.WriteString("These are NOT valid exit reasons:\n")
+		sb.WriteString("- \"5M/15M indicators show minor reversal\" → noise\n")
+		sb.WriteString("- \"Might pull back soon\" → speculation, use trailing stop instead\n")
+		sb.WriteString("- \"Want to lock in small profit\" → move stop to breakeven, keep holding\n\n")
+
+		sb.WriteString("### Losing Positions\n")
+		sb.WriteString("Stop-loss triggered → execute immediately, zero hesitation\n\n")
 
 		sb.WriteString("## Reversal Cooldown (Soft Constraint)\n")
 		sb.WriteString("Opening reverse position on SAME coin right after closing at a loss = high-risk move. Not banned, but requires:\n")
@@ -228,11 +290,13 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("## Confidence Deduction Table (stack with positive scoring)\n")
 		sb.WriteString("| Condition | Deduction |\n")
 		sb.WriteString("|-----------|----------|\n")
+		sb.WriteString("| 4H vs 1H trend contradicts (counter-trend trade) | -20 |\n")
 		sb.WriteString("| Reverse position after loss on same coin | -15 |\n")
+		sb.WriteString("| Ranging market, not at range edge | -15 |\n")
 		sb.WriteString("| ≥2 of last 3 trades on same coin are losses | -10 |\n")
-		sb.WriteString("| Price near BOLL mid-band (not at key level) | -10 |\n")
+		sb.WriteString("| Price near BOLL mid-band (no-man's land) | -10 |\n")
 		sb.WriteString("| Only single timeframe signal | -10 |\n")
-		sb.WriteString("| Ranging market, not at range edge | -15 |\n\n")
+		sb.WriteString("| No volume/flow confirmation (pure technical) | -10 |\n\n")
 	}
 
 	// 6. Decision process (editable)
